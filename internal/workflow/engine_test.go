@@ -260,7 +260,7 @@ func TestEngine_executeStep(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := engine.executeStep(tt.step)
+			err := engine.ExecuteStep(tt.step)
 			if tt.wantErr && err == nil {
 				t.Error("Expected error but got none")
 			}

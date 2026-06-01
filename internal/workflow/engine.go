@@ -45,7 +45,7 @@ func (e *Engine) Execute(workflow models.Workflow) (*models.ExecutionRecord, err
 			StartedAt: time.Now(),
 		}
 
-		err := e.executeStep(step)
+		err := e.ExecuteStep(step)
 
 		now := time.Now()
 		stepExec.CompletedAt = &now
@@ -87,8 +87,8 @@ func (e *Engine) Execute(workflow models.Workflow) (*models.ExecutionRecord, err
 	return record, nil
 }
 
-// executeStep executes a single workflow step
-func (e *Engine) executeStep(step models.WorkflowStep) error {
+// ExecuteStep executes a single workflow step
+func (e *Engine) ExecuteStep(step models.WorkflowStep) error {
 	switch step.Type {
 	case models.StepStatus:
 		_, err := e.gitSvc.Status()
@@ -99,14 +99,14 @@ func (e *Engine) executeStep(step models.WorkflowStep) error {
 		if message == "" {
 			message = "Commit from workflow"
 		}
-		
+
 		// Auto-add if specified
 		if step.Parameters["autoAdd"] == "true" {
 			if err := e.gitSvc.AddAll(); err != nil {
 				return err
 			}
 		}
-		
+
 		return e.gitSvc.Commit(message)
 
 	case models.StepPush:
@@ -114,7 +114,7 @@ func (e *Engine) executeStep(step models.WorkflowStep) error {
 		if remote == "" {
 			remote = "origin"
 		}
-		
+
 		branch := step.Parameters["branch"]
 		if branch == "" {
 			var err error
@@ -123,7 +123,7 @@ func (e *Engine) executeStep(step models.WorkflowStep) error {
 				return err
 			}
 		}
-		
+
 		return e.gitSvc.Push(remote, branch)
 
 	case models.StepPull:

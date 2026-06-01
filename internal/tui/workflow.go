@@ -12,16 +12,19 @@ import (
 	"gitflow-tui/internal/models"
 )
 
+// runWorkflowMsg is sent when user wants to run a workflow
+type runWorkflowMsg models.Workflow
+
 // WorkflowModel handles the workflow builder screen
 type WorkflowModel struct {
-	gitSvc      git.GitService
-	styles      Styles
-	workflows   []models.Workflow
-	cursor      int
-	selected    *models.Workflow
-	editing     bool
-	running     bool
-	message     string
+	gitSvc    git.GitService
+	styles    Styles
+	workflows []models.Workflow
+	cursor    int
+	selected  *models.Workflow
+	editing   bool
+	running   bool
+	message   string
 }
 
 // NewWorkflowModel creates a new workflow model
@@ -88,7 +91,9 @@ func (m *WorkflowModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if len(m.workflows) > 0 && m.cursor < len(m.workflows) {
 				m.selected = &m.workflows[m.cursor]
-				m.message = fmt.Sprintf("Selected: %s", m.selected.Name)
+				return m, func() tea.Msg {
+					return runWorkflowMsg(m.workflows[m.cursor])
+				}
 			}
 		}
 	}
@@ -119,10 +124,10 @@ func (m *WorkflowModel) View() string {
 
 			name := m.styles.Value.Render(workflow.Name)
 			desc := m.styles.Help.Render(workflow.Description)
-			
+
 			lines = append(lines, fmt.Sprintf("%s%s", cursor, name))
 			lines = append(lines, fmt.Sprintf("    %s", desc))
-			
+
 			// Show steps
 			if len(workflow.Steps) > 0 {
 				stepNames := []string{}
@@ -131,7 +136,7 @@ func (m *WorkflowModel) View() string {
 				}
 				lines = append(lines, fmt.Sprintf("    Steps: %s", m.styles.Info.Render(fmt.Sprintf("%v", stepNames))))
 			}
-			
+
 			lines = append(lines, "")
 		}
 	}
@@ -143,7 +148,7 @@ func (m *WorkflowModel) View() string {
 	}
 
 	// Help
-	lines = append(lines, m.styles.Help.Render("↑/↓: navigate | enter: select | esc: back"))
+	lines = append(lines, m.styles.Help.Render("↑/↓: navigate | enter: run workflow | esc: back"))
 
 	return m.styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }

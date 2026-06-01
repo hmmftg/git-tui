@@ -22,14 +22,15 @@ type AppModel struct {
 	Height      int
 
 	// View models
-	statusModel   *StatusModel
-	commitModel   *CommitModel
-	checkoutModel *CheckoutModel
-	pushModel     *PushModel
-	pullModel     *PullModel
-	mergeModel    *MergeModel
-	rebaseModel   *RebaseModel
-	workflowModel *WorkflowModel
+	statusModel    *StatusModel
+	commitModel    *CommitModel
+	checkoutModel  *CheckoutModel
+	pushModel      *PushModel
+	pullModel      *PullModel
+	mergeModel     *MergeModel
+	rebaseModel    *RebaseModel
+	workflowModel  *WorkflowModel
+	executionModel *ExecutionModel
 
 	// Message/Error
 	Message     string
@@ -77,11 +78,52 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "f1", "?":
 			// Show help
 			return m, nil
+		// Numeric keys for home menu navigation
+		case "1":
+			if m.CurrentView == models.ViewHome {
+				return m, m.navigateTo(models.ViewStatus)
+			}
+		case "2":
+			if m.CurrentView == models.ViewHome {
+				return m, m.navigateTo(models.ViewCommit)
+			}
+		case "3":
+			if m.CurrentView == models.ViewHome {
+				return m, m.navigateTo(models.ViewPush)
+			}
+		case "4":
+			if m.CurrentView == models.ViewHome {
+				return m, m.navigateTo(models.ViewPull)
+			}
+		case "5":
+			if m.CurrentView == models.ViewHome {
+				return m, m.navigateTo(models.ViewCheckout)
+			}
+		case "6":
+			if m.CurrentView == models.ViewHome {
+				return m, m.navigateTo(models.ViewMerge)
+			}
+		case "7":
+			if m.CurrentView == models.ViewHome {
+				return m, m.navigateTo(models.ViewRebase)
+			}
+		case "8":
+			if m.CurrentView == models.ViewHome {
+				return m, m.navigateTo(models.ViewWorkflowBuilder)
+			}
 		}
 
 	case repoInfoMsg:
 		m.Repository = models.RepositoryInfo(msg)
 		return m, nil
+
+	case runWorkflowMsg:
+		// Start workflow execution
+		m.executionModel = NewExecutionModel(m.GitService, m.Styles, models.Workflow(msg), models.StopOnError)
+		return m, tea.Batch(
+			m.navigateTo(models.ViewExecution),
+			m.executionModel.Init(),
+		)
 
 	case viewChangeMsg:
 		m.CurrentView = models.ViewType(msg)
@@ -111,6 +153,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case models.ViewWorkflowBuilder:
 			m.workflowModel = NewWorkflowModel(m.GitService, m.Styles)
 			return m, m.workflowModel.Init()
+		case models.ViewExecution:
+			// Execution model is already set by runWorkflowMsg handler
+			return m, nil
 		}
 		return m, nil
 
@@ -176,6 +221,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workflowModel = wm.(*WorkflowModel)
 			cmd = c
 		}
+	case models.ViewExecution:
+		if m.executionModel != nil {
+			em, c := m.executionModel.Update(msg)
+			m.executionModel = em.(*ExecutionModel)
+			cmd = c
+		}
 	}
 
 	return m, cmd
@@ -223,6 +274,10 @@ func (m *AppModel) View() string {
 	case models.ViewWorkflowBuilder:
 		if m.workflowModel != nil {
 			content = m.workflowModel.View()
+		}
+	case models.ViewExecution:
+		if m.executionModel != nil {
+			content = m.executionModel.View()
 		}
 	default:
 		content = m.renderHome()
