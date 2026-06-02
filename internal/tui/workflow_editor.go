@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -48,9 +49,11 @@ type WorkflowEditorModel struct {
 	availableTypes []models.StepType
 
 	// Parameter editing
-	paramCursor     int      // cursor for parameter list
-	paramKeys       []string // parameter keys for current step
-	editingParamKey string   // currently editing parameter key
+	paramCursor        int      // cursor for parameter list
+	paramKeys          []string // parameter keys for current step
+	editingParamKey    string   // currently editing parameter key
+	editingParamValue  bool
+	previousParamValue string
 
 	// Command configuration
 	currentCommandModel CommandModel // Currently active command model for configuration
@@ -132,7 +135,21 @@ func (m *WorkflowEditorModel) Init() tea.Cmd {
 
 // IsInputFocused returns true if any text input is currently focused
 func (m *WorkflowEditorModel) IsInputFocused() bool {
-	return m.focusIndex < 3 // 0=name, 1=desc, 2=param
+	return m.nameInput.Focused() || m.descInput.Focused() || m.paramInput.Focused()
+}
+
+// SetSize updates input widths for the available content area.
+func (m *WorkflowEditorModel) SetSize(width, _ int) {
+	if width <= 0 {
+		return
+	}
+	inputWidth := width - 12
+	if inputWidth < 20 {
+		inputWidth = 20
+	}
+	m.nameInput.Width = inputWidth
+	m.descInput.Width = inputWidth
+	m.paramInput.Width = inputWidth
 }
 
 // updateFocus updates focus state for all inputs based on current focusIndex
@@ -190,6 +207,20 @@ func (m *WorkflowEditorModel) setFocusByName(input string) tea.Cmd {
 func (m *WorkflowEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// Forward ordinary messages to an active command model before editor-level key handling.
+	// Configuration completion/cancellation messages are emitted by the command model
+	// and must be handled by the editor itself.
+	if m.currentCommandModel != nil {
+		switch msg.(type) {
+		case commandConfiguredMsg, commandCancelledMsg:
+			// handled below
+		default:
+			model, cmd := m.currentCommandModel.Update(msg)
+			m.currentCommandModel = model.(CommandModel)
+			return m, cmd
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch m.mode {
@@ -223,14 +254,6 @@ func (m *WorkflowEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentCommandModel = nil
 		m.mode = modeSteps
 		return m, nil
-	}
-
-	// Forward messages to active command model
-	if m.currentCommandModel != nil {
-		var cmd tea.Cmd
-		model, cmd := m.currentCommandModel.Update(msg)
-		m.currentCommandModel = model.(CommandModel) // Type assert back to CommandModel
-		return m, cmd
 	}
 
 	return m, cmd
@@ -336,16 +359,13 @@ func (m *WorkflowEditorModel) handleStepsInput(msg tea.KeyMsg) (tea.Model, tea.C
 		return m, nil
 	case "tab":
 		m.mode = modeName
-		m.nameInput.Focus()
-		return m, nil
+		return m, m.setFocus(0)
 	case "shift+tab":
 		m.mode = modeDescription
-		m.descInput.Focus()
-		return m, nil
+		return m, m.setFocus(1)
 	case "esc":
 		m.mode = modeDescription
-		m.descInput.Focus()
-		return m, nil
+		return m, m.setFocus(1)
 	case "ctrl+s":
 		return m, m.saveWorkflow()
 	}
@@ -395,44 +415,57 @@ func (m *WorkflowEditorModel) handleEditStepInput(msg tea.KeyMsg) (tea.Model, te
 
 	switch msg.String() {
 	case "up", "k":
-		if m.paramCursor > 0 {
+		if m.editingParamKey == "" && !m.editingParamValue && m.paramCursor > 0 {
 			m.paramCursor--
 		}
 		return m, nil
 	case "down", "j":
-		if m.paramCursor < len(m.paramKeys)-1 {
+		if m.editingParamKey == "" && !m.editingParamValue && m.paramCursor < len(m.paramKeys)-1 {
 			m.paramCursor++
 		}
 		return m, nil
 	case "enter":
-		// Save the parameter value or add new parameter
 		if m.editingParamKey == "new" {
-			// Adding new parameter
 			newKey := m.paramInput.Value()
 			if newKey != "" {
 				step.Parameters[newKey] = ""
 				m.updateParamKeys()
-				// Find and select the new parameter
 				for i, key := range m.paramKeys {
 					if key == newKey {
 						m.paramCursor = i
 						break
 					}
 				}
-				m.paramInput.SetValue("")
-				m.paramInput.Placeholder = "Enter value"
-				m.editingParamKey = ""
 			}
-		} else if m.paramCursor < len(m.paramKeys) {
-			// Editing existing parameter value
-			key := m.paramKeys[m.paramCursor]
-			step.Parameters[key] = m.paramInput.Value()
 			m.paramInput.SetValue("")
+			m.paramInput.Placeholder = "Enter value"
+			m.editingParamKey = ""
+			return m, m.setFocus(3)
+		}
+
+		if m.editingParamValue {
+			if m.editingParamKey != "" {
+				step.Parameters[m.editingParamKey] = m.paramInput.Value()
+			}
+			m.editingParamKey = ""
+			m.editingParamValue = false
+			m.previousParamValue = ""
+			m.paramInput.SetValue("")
+			return m, m.setFocus(3)
+		}
+
+		if m.paramCursor < len(m.paramKeys) {
+			key := m.paramKeys[m.paramCursor]
+			m.editingParamKey = key
+			m.editingParamValue = true
+			m.previousParamValue = step.Parameters[key]
+			m.paramInput.Placeholder = "Enter value"
+			m.paramInput.SetValue(step.Parameters[key])
+			return m, m.setFocus(2)
 		}
 		return m, nil
 	case "d":
-		// Delete parameter
-		if m.paramCursor < len(m.paramKeys) {
+		if m.editingParamKey == "" && !m.editingParamValue && m.paramCursor < len(m.paramKeys) {
 			key := m.paramKeys[m.paramCursor]
 			delete(step.Parameters, key)
 			m.updateParamKeys()
@@ -442,34 +475,43 @@ func (m *WorkflowEditorModel) handleEditStepInput(msg tea.KeyMsg) (tea.Model, te
 		}
 		return m, nil
 	case "a":
-		// Add new parameter
+		if m.editingParamKey != "" || m.editingParamValue {
+			break
+		}
 		m.paramInput.SetValue("")
 		m.paramInput.Placeholder = "Enter new parameter name"
 		m.editingParamKey = "new"
-		return m, m.setFocus(2) // Focus param input (index 2)
+		return m, m.setFocus(2)
 	case "tab":
-		// Move to next parameter
-		if m.paramCursor < len(m.paramKeys)-1 {
+		if m.editingParamKey == "" && !m.editingParamValue && m.paramCursor < len(m.paramKeys)-1 {
 			m.paramCursor++
 		}
 		return m, nil
 	case "shift+tab":
-		// Move to previous parameter
-		if m.paramCursor > 0 {
+		if m.editingParamKey == "" && !m.editingParamValue && m.paramCursor > 0 {
 			m.paramCursor--
 		}
 		return m, nil
 	case "esc":
+		if m.editingParamKey != "" || m.editingParamValue {
+			m.editingParamKey = ""
+			m.editingParamValue = false
+			m.previousParamValue = ""
+			m.paramInput.SetValue("")
+			return m, m.setFocus(3)
+		}
 		m.mode = modeSteps
-		return m, m.setFocus(3) // No input focused when in steps mode (index 3)
+		return m, m.setFocus(3)
 	case "ctrl+s":
 		return m, m.saveWorkflow()
 	}
 
-	// Handle text input for parameter values
-	var cmd tea.Cmd
-	m.paramInput, cmd = m.paramInput.Update(msg)
-	return m, cmd
+	if m.editingParamKey != "" || m.editingParamValue {
+		var cmd tea.Cmd
+		m.paramInput, cmd = m.paramInput.Update(msg)
+		return m, cmd
+	}
+	return m, nil
 }
 
 func (m *WorkflowEditorModel) updateParamKeys() {
@@ -483,6 +525,7 @@ func (m *WorkflowEditorModel) updateParamKeys() {
 	for key := range step.Parameters {
 		m.paramKeys = append(m.paramKeys, key)
 	}
+	sort.Strings(m.paramKeys)
 }
 
 func (m *WorkflowEditorModel) saveWorkflow() tea.Cmd {
@@ -650,6 +693,9 @@ func (m *WorkflowEditorModel) handleCommandSelectionInput(msg tea.KeyMsg) (tea.M
 			stepType := m.availableTypes[m.stepTypeCursor]
 			commandModel := m.commandRegistry.CreateCommandModel(stepType, ModeConfigure)
 			if commandModel != nil {
+				if m.stepCursor < len(m.workflow.Steps) {
+					commandModel.SetParameters(m.workflow.Steps[m.stepCursor].Parameters)
+				}
 				m.currentCommandModel = commandModel
 				return m, commandModel.Init()
 			}
@@ -664,7 +710,7 @@ func (m *WorkflowEditorModel) handleCommandSelectionInput(msg tea.KeyMsg) (tea.M
 
 // updateStepWithConfig updates the current step with new configuration
 func (m *WorkflowEditorModel) updateStepWithConfig(config models.CommandConfig) {
-	if len(m.workflow.Steps) == 0 {
+	if len(m.workflow.Steps) == 0 || m.stepCursor >= len(m.workflow.Steps) {
 		// Create new step
 		newStep := models.WorkflowStep{
 			Type:        config.StepType,
@@ -673,7 +719,7 @@ func (m *WorkflowEditorModel) updateStepWithConfig(config models.CommandConfig) 
 		}
 		m.workflow.Steps = append(m.workflow.Steps, newStep)
 		m.stepCursor = len(m.workflow.Steps) - 1
-	} else if m.stepCursor < len(m.workflow.Steps) {
+	} else {
 		// Update existing step
 		step := &m.workflow.Steps[m.stepCursor]
 		step.Type = config.StepType

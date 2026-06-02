@@ -31,6 +31,9 @@ type CommandModel interface {
 	// GetParameters returns the collected parameters (only valid in configure mode)
 	GetParameters() map[string]string
 
+	// SetParameters loads existing parameters into the command model for editing.
+	SetParameters(params map[string]string)
+
 	// Execute returns a command to execute the operation (only valid in execute mode)
 	Execute() tea.Cmd
 

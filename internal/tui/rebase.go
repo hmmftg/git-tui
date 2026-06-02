@@ -107,6 +107,14 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case branchesLoadedMsg:
 		m.branches = []string(msg)
 		m.Err = nil
+		if m.targetBranch != "" {
+			for i, branch := range m.branches {
+				if branch == m.targetBranch {
+					m.cursor = i
+					break
+				}
+			}
+		}
 		return m, nil
 
 	case RebaseSuccessMsg:
@@ -349,7 +357,7 @@ func (m *RebaseModel) GetParameters() map[string]string {
 
 	params := make(map[string]string)
 	if m.cursor >= 0 && m.cursor < len(m.branches) {
-		params["targetBranch"] = m.branches[m.cursor]
+		params["target"] = m.branches[m.cursor]
 	}
 	params["interactive"] = "false"
 	if m.interactive {
@@ -363,6 +371,24 @@ func (m *RebaseModel) GetParameters() map[string]string {
 }
 
 // Execute returns a command to execute the operation (only valid in execute mode)
+func (m *RebaseModel) SetParameters(params map[string]string) {
+	if params == nil {
+		return
+	}
+	m.targetBranch = params["target"]
+	if m.targetBranch == "" {
+		m.targetBranch = params["targetBranch"]
+	}
+	m.interactive = params["interactive"] == "true"
+	m.autoStash = params["autoStash"] == "true"
+	for i, branch := range m.branches {
+		if branch == m.targetBranch {
+			m.cursor = i
+			break
+		}
+	}
+}
+
 func (m *RebaseModel) Execute() tea.Cmd {
 	if m.Mode != ModeExecute {
 		return nil

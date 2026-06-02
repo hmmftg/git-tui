@@ -124,10 +124,14 @@ func (e *Engine) ExecuteStep(step models.WorkflowStep) error {
 			}
 		}
 
-		return e.gitSvc.Push(remote, branch)
+		return e.gitSvc.PushOptions(remote, branch, step.Parameters["force"] == "true")
 
 	case models.StepPull:
-		return e.gitSvc.Pull()
+		return e.gitSvc.PullOptions(
+			step.Parameters["remote"],
+			step.Parameters["rebase"] == "true",
+			step.Parameters["branch"],
+		)
 
 	case models.StepCheckout:
 		branch := step.Parameters["branch"]
@@ -139,12 +143,18 @@ func (e *Engine) ExecuteStep(step models.WorkflowStep) error {
 	case models.StepMerge:
 		target := step.Parameters["target"]
 		if target == "" {
+			target = step.Parameters["targetBranch"]
+		}
+		if target == "" {
 			return errors.New("merge step requires a target parameter")
 		}
 		return e.gitSvc.Merge(target)
 
 	case models.StepRebase:
 		target := step.Parameters["target"]
+		if target == "" {
+			target = step.Parameters["targetBranch"]
+		}
 		if target == "" {
 			return errors.New("rebase step requires a target parameter")
 		}
