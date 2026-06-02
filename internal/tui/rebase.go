@@ -11,13 +11,15 @@ import (
 
 // RebaseModel handles the rebase screen
 type RebaseModel struct {
-	gitSvc   git.GitService
-	styles   Styles
-	branches []string
-	cursor   int
-	message  string
-	err      error
-	success  bool
+	gitSvc       git.GitService
+	styles       Styles
+	branches     []string
+	cursor       int
+	message      string
+	err          error
+	success      bool
+	conflict     bool
+	targetBranch string
 }
 
 // NewRebaseModel creates a new rebase model
@@ -52,6 +54,16 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "r":
 			return m, m.loadBranches()
+		case "c":
+			// Continue rebase after resolving conflicts
+			if m.conflict {
+				return m, m.continueRebase()
+			}
+		case "a":
+			// Abort rebase
+			if m.conflict {
+				return m, m.abortRebase()
+			}
 		}
 
 	case branchesLoadedMsg:
@@ -60,14 +72,43 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case rebaseSuccessMsg:
+		// Check for conflicts after rebase
+		if m.gitSvc.HasConflicts() {
+			m.conflict = true
+			m.message = fmt.Sprintf("⚠ Rebase onto %s has conflicts! Resolve them and press 'c' to continue.", msg)
+			return m, nil
+		}
 		m.success = true
 		m.message = fmt.Sprintf("✔ Rebased onto %s successfully!", msg)
+		m.err = nil
+		m.conflict = false
+		return m, nil
+
+	case rebaseContinueMsg:
+		// Check if conflicts are resolved
+		if m.gitSvc.HasConflicts() {
+			m.message = "⚠ Still have conflicts! Resolve them before continuing."
+			return m, nil
+		}
+		m.success = true
+		m.message = "✔ Rebase completed successfully!"
+		m.conflict = false
+		return m, nil
+
+	case rebaseAbortedMsg:
+		m.conflict = false
+		m.message = "✔ Rebase aborted"
 		m.err = nil
 		return m, nil
 
 	case error:
 		m.err = msg
 		m.message = fmt.Sprintf("✘ Error: %v", msg)
+		// Check if it's a conflict error
+		if m.gitSvc.HasConflicts() {
+			m.conflict = true
+			m.message = fmt.Sprintf("⚠ Rebase conflict! Resolve files and press 'c' to continue.\nError: %v", msg)
+		}
 		return m, nil
 	}
 
@@ -110,9 +151,19 @@ func (m *RebaseModel) View() string {
 
 	lines = append(lines, "")
 
+	// Conflict warning banner
+	if m.conflict {
+		banner := m.styles.Warning.Render(" ⚠ REBASE CONFLICTS DETECTED ")
+		lines = append(lines, banner)
+		lines = append(lines, m.styles.Warning.Render("Please resolve conflicts in your editor, then:"))
+		lines = append(lines, "")
+	}
+
 	// Message
 	if m.message != "" {
-		if m.err != nil {
+		if m.conflict {
+			lines = append(lines, m.styles.Warning.Render(m.message))
+		} else if m.err != nil {
 			lines = append(lines, m.styles.Error.Render(m.message))
 		} else {
 			lines = append(lines, m.styles.Success.Render(m.message))
@@ -121,7 +172,11 @@ func (m *RebaseModel) View() string {
 	}
 
 	// Help
-	lines = append(lines, m.styles.Help.Render("↑/↓: navigate | enter: rebase | r: refresh | esc: back"))
+	help := "↑/↓: navigate | enter: rebase | r: refresh | esc: back"
+	if m.conflict {
+		help = "c: continue | a: abort | esc: back"
+	}
+	lines = append(lines, m.styles.Help.Render(help))
 
 	return m.styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
@@ -139,6 +194,7 @@ func (m *RebaseModel) loadBranches() tea.Cmd {
 
 // rebase rebases onto the selected branch
 func (m *RebaseModel) rebase(branch string) tea.Cmd {
+	m.targetBranch = branch
 	return func() tea.Msg {
 		err := m.gitSvc.Rebase(branch)
 		if err != nil {
@@ -148,4 +204,34 @@ func (m *RebaseModel) rebase(branch string) tea.Cmd {
 	}
 }
 
+// continueRebase continues the rebase after conflicts are resolved
+func (m *RebaseModel) continueRebase() tea.Cmd {
+	return func() tea.Msg {
+		// Check if still has conflicts
+		if m.gitSvc.HasConflicts() {
+			return fmt.Errorf("still has unresolved conflicts")
+		}
+		// Continue the rebase
+		err := m.gitSvc.ContinueRebase()
+		if err != nil {
+			return err
+		}
+		return rebaseContinueMsg{}
+	}
+}
+
+// abortRebase aborts the rebase
+func (m *RebaseModel) abortRebase() tea.Cmd {
+	return func() tea.Msg {
+		err := m.gitSvc.AbortRebase()
+		if err != nil {
+			return err
+		}
+		m.conflict = false
+		return rebaseAbortedMsg{}
+	}
+}
+
 type rebaseSuccessMsg string
+type rebaseContinueMsg struct{}
+type rebaseAbortedMsg struct{}
