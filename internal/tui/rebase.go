@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"gitflow-tui/internal/git"
+	"gitflow-tui/internal/models"
 )
 
 // RebaseModel handles the rebase screen
@@ -20,13 +21,21 @@ type RebaseModel struct {
 	success      bool
 	conflict     bool
 	targetBranch string
+	mode         CommandMode
+
+	// Configuration options
+	interactive bool
+	autoStash   bool
 }
 
 // NewRebaseModel creates a new rebase model
 func NewRebaseModel(gitSvc git.GitService, styles Styles) *RebaseModel {
 	return &RebaseModel{
-		gitSvc: gitSvc,
-		styles: styles,
+		gitSvc:      gitSvc,
+		styles:      styles,
+		mode:        ModeExecute, // Default to execute mode for backward compatibility
+		interactive: false,
+		autoStash:   false,
 	}
 }
 
@@ -39,35 +48,64 @@ func (m *RebaseModel) Init() tea.Cmd {
 func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
+		if m.mode == ModeConfigure {
+			switch msg.String() {
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case "down", "j":
+				if m.cursor < len(m.branches)-1 {
+					m.cursor++
+				}
+			case "i":
+				// Toggle interactive option
+				m.interactive = !m.interactive
+			case "s":
+				// Toggle auto-stash option
+				m.autoStash = !m.autoStash
+			case "enter":
+				// Save configuration
+				config := models.CommandConfig{
+					StepType:   models.StepRebase,
+					Parameters: m.GetParameters(),
+				}
+				return m, func() tea.Msg { return commandConfiguredMsg{Config: config} }
+			case "esc":
+				return m, func() tea.Msg { return commandCancelledMsg{} }
 			}
-		case "down", "j":
-			if m.cursor < len(m.branches)-1 {
-				m.cursor++
-			}
-		case "enter":
-			if len(m.branches) > 0 && m.cursor < len(m.branches) {
-				return m, m.rebase(m.branches[m.cursor])
-			}
-		case "R":
-			return m, m.loadBranches()
-		case "c":
-			// Continue rebase after resolving conflicts
-			if m.conflict {
-				return m, m.continueRebase()
-			}
-		case "a":
-			// Abort rebase
-			if m.conflict {
-				return m, m.abortRebase()
-			}
-		case "r":
-			// Open conflict resolver
-			if m.conflict {
-				return m, func() tea.Msg { return openConflictResolverMsg{} }
+		} else {
+			// Execute mode
+			switch msg.String() {
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case "down", "j":
+				if m.cursor < len(m.branches)-1 {
+					m.cursor++
+				}
+			case "enter":
+				if len(m.branches) > 0 && m.cursor < len(m.branches) {
+					return m, m.rebase(m.branches[m.cursor])
+				}
+			case "R":
+				return m, m.loadBranches()
+			case "c":
+				// Continue rebase after resolving conflicts
+				if m.conflict {
+					return m, m.continueRebase()
+				}
+			case "a":
+				// Abort rebase
+				if m.conflict {
+					return m, m.abortRebase()
+				}
+			case "r":
+				// Open conflict resolver
+				if m.conflict {
+					return m, func() tea.Msg { return openConflictResolverMsg{} }
+				}
 			}
 		}
 
@@ -125,36 +163,102 @@ func (m *RebaseModel) View() string {
 	var lines []string
 
 	// Title
-	lines = append(lines, m.styles.Title.Render(" Rebase Branch "))
-	lines = append(lines, "")
-
-	// Description
-	current, _ := m.gitSvc.CurrentBranch()
-	lines = append(lines, m.styles.Info.Render(fmt.Sprintf("Current branch: %s", current)))
-	lines = append(lines, "")
-	lines = append(lines, m.styles.Help.Render("Select base branch to rebase ONTO:"))
-	lines = append(lines, "")
-
-	// Branch list
-	if len(m.branches) == 0 {
-		lines = append(lines, m.styles.Info.Render("Loading branches..."))
+	if m.mode == ModeConfigure {
+		lines = append(lines, m.styles.Title.Render(" Configure Rebase Step "))
 	} else {
-		for i, branch := range m.branches {
-			cursor := "  "
-			if m.cursor == i {
-				cursor = m.styles.Key.Render("▸ ")
-			}
+		lines = append(lines, m.styles.Title.Render(" Rebase Branch "))
+	}
+	lines = append(lines, "")
 
-			// Don't show current branch
-			if branch == current {
-				lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.styles.Dimmed.Render(branch)))
-			} else {
-				lines = append(lines, fmt.Sprintf("%s%s", cursor, branch))
+	if m.mode == ModeConfigure {
+		// Configuration options
+		lines = append(lines, m.styles.Help.Render("Configure rebase step options:"))
+		lines = append(lines, "")
+
+		// Branch selection
+		lines = append(lines, m.styles.Help.Render("Select base branch to rebase ONTO:"))
+		lines = append(lines, "")
+
+		// Branch list
+		if len(m.branches) == 0 {
+			lines = append(lines, m.styles.Info.Render("Loading branches..."))
+		} else {
+			current, _ := m.gitSvc.CurrentBranch()
+			for i, branch := range m.branches {
+				cursor := "  "
+				if m.cursor == i {
+					cursor = m.styles.Key.Render("▸ ")
+				}
+
+				// Don't show current branch
+				if branch == current {
+					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.styles.Dimmed.Render(branch)))
+				} else {
+					lines = append(lines, fmt.Sprintf("%s%s", cursor, branch))
+				}
 			}
 		}
-	}
+		lines = append(lines, "")
 
-	lines = append(lines, "")
+		// Interactive option
+		interactiveStyle := m.styles.Info
+		if m.interactive {
+			interactiveStyle = m.styles.Success
+		}
+		interactiveText := "Interactive rebase: "
+		if m.interactive {
+			interactiveText += "✓ Yes"
+		} else {
+			interactiveText += "✗ No"
+		}
+		lines = append(lines, interactiveStyle.Render(interactiveText))
+
+		// Auto-stash option
+		autoStashStyle := m.styles.Info
+		if m.autoStash {
+			autoStashStyle = m.styles.Success
+		}
+		autoStashText := "Auto stash: "
+		if m.autoStash {
+			autoStashText += "✓ Yes"
+		} else {
+			autoStashText += "✗ No"
+		}
+		lines = append(lines, autoStashStyle.Render(autoStashText))
+		lines = append(lines, "")
+
+		// Help
+		lines = append(lines, m.styles.Help.Render("↑/↓: navigate | i: toggle interactive | s: toggle auto-stash | enter: save | esc: cancel"))
+	} else {
+		// Execute mode
+		// Description
+		current, _ := m.gitSvc.CurrentBranch()
+		lines = append(lines, m.styles.Info.Render(fmt.Sprintf("Current branch: %s", current)))
+		lines = append(lines, "")
+		lines = append(lines, m.styles.Help.Render("Select base branch to rebase ONTO:"))
+		lines = append(lines, "")
+
+		// Branch list
+		if len(m.branches) == 0 {
+			lines = append(lines, m.styles.Info.Render("Loading branches..."))
+		} else {
+			for i, branch := range m.branches {
+				cursor := "  "
+				if m.cursor == i {
+					cursor = m.styles.Key.Render("▸ ")
+				}
+
+				// Don't show current branch
+				if branch == current {
+					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.styles.Dimmed.Render(branch)))
+				} else {
+					lines = append(lines, fmt.Sprintf("%s%s", cursor, branch))
+				}
+			}
+		}
+
+		lines = append(lines, "")
+	}
 
 	// Conflict warning banner
 	if m.conflict {
@@ -235,6 +339,60 @@ func (m *RebaseModel) abortRebase() tea.Cmd {
 		m.conflict = false
 		return rebaseAbortedMsg{}
 	}
+}
+
+// CommandModel interface implementation
+
+// SetMode sets the operating mode of the command model
+func (m *RebaseModel) SetMode(mode CommandMode) {
+	m.mode = mode
+	if mode == ModeConfigure {
+		m.message = ""
+		m.err = nil
+		m.conflict = false
+	}
+}
+
+// GetMode returns the current operating mode
+func (m *RebaseModel) GetMode() CommandMode {
+	return m.mode
+}
+
+// GetParameters returns the collected parameters (only valid in configure mode)
+func (m *RebaseModel) GetParameters() map[string]string {
+	if m.mode != ModeConfigure {
+		return nil
+	}
+
+	params := make(map[string]string)
+	if m.cursor >= 0 && m.cursor < len(m.branches) {
+		params["targetBranch"] = m.branches[m.cursor]
+	}
+	params["interactive"] = "false"
+	if m.interactive {
+		params["interactive"] = "true"
+	}
+	params["autoStash"] = "false"
+	if m.autoStash {
+		params["autoStash"] = "true"
+	}
+	return params
+}
+
+// Execute returns a command to execute the operation (only valid in execute mode)
+func (m *RebaseModel) Execute() tea.Cmd {
+	if m.mode != ModeExecute {
+		return nil
+	}
+	if m.cursor >= 0 && m.cursor < len(m.branches) {
+		return m.rebase(m.branches[m.cursor])
+	}
+	return nil
+}
+
+// GetStepType returns the step type this command model represents
+func (m *RebaseModel) GetStepType() models.StepType {
+	return models.StepRebase
 }
 
 type rebaseSuccessMsg string

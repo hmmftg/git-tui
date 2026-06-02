@@ -30,12 +30,26 @@ func (r *CommandRegistry) CreateCommandModel(stepType models.StepType, mode Comm
 		model := NewCheckoutModel(r.gitSvc, r.styles)
 		model.SetMode(mode)
 		return model
-	// TODO: Implement other models as CommandModel interface
-	// case models.StepPush:
-	// case models.StepPull:
-	// case models.StepMerge:
-	// case models.StepRebase:
-	// case models.StepStatus:
+	case models.StepStatus:
+		model := NewStatusModel(r.gitSvc, r.styles)
+		model.SetMode(mode)
+		return model
+	case models.StepPush:
+		model := NewPushModel(r.gitSvc, r.styles)
+		model.SetMode(mode)
+		return model
+	case models.StepPull:
+		model := NewPullModel(r.gitSvc, r.styles)
+		model.SetMode(mode)
+		return model
+	case models.StepMerge:
+		model := NewMergeModel(r.gitSvc, r.styles)
+		model.SetMode(mode)
+		return model
+	case models.StepRebase:
+		model := NewRebaseModel(r.gitSvc, r.styles)
+		model.SetMode(mode)
+		return model
 	default:
 		return nil
 	}
@@ -43,10 +57,14 @@ func (r *CommandRegistry) CreateCommandModel(stepType models.StepType, mode Comm
 
 // GetAvailableStepTypes returns all available step types
 func (r *CommandRegistry) GetAvailableStepTypes() []models.StepType {
-	// TODO: Add other step types as they implement CommandModel interface
 	return []models.StepType{
 		models.StepCommit,
 		models.StepCheckout,
+		models.StepStatus,
+		models.StepPush,
+		models.StepPull,
+		models.StepMerge,
+		models.StepRebase,
 	}
 }
 

@@ -40,6 +40,9 @@ type WorkflowEditorModel struct {
 	descInput  textinput.Model
 	paramInput textinput.Model
 
+	// Focus management
+	focusIndex int // 0=name, 1=desc, 2=param, 3=no focus
+
 	// Step type selection for adding
 	stepTypeCursor int
 	availableTypes []models.StepType
@@ -99,7 +102,7 @@ func NewWorkflowEditor(gitSvc git.GitService, configMgr *config.Manager, styles 
 		isNew = true
 	}
 
-	return &WorkflowEditorModel{
+	model := &WorkflowEditorModel{
 		gitSvc:          gitSvc,
 		configMgr:       configMgr,
 		styles:          styles,
@@ -111,14 +114,76 @@ func NewWorkflowEditor(gitSvc git.GitService, configMgr *config.Manager, styles 
 		nameInput:       nameTi,
 		descInput:       descTi,
 		paramInput:      paramTi,
+		focusIndex:      0, // Start with name input focused (index 0)
 		availableTypes:  availableTypes,
 		stepTypeCursor:  0,
 	}
+
+	// Initialize focus state
+	model.updateFocus()
+
+	return model
 }
 
 // Init initializes the editor
 func (m *WorkflowEditorModel) Init() tea.Cmd {
 	return textinput.Blink
+}
+
+// IsInputFocused returns true if any text input is currently focused
+func (m *WorkflowEditorModel) IsInputFocused() bool {
+	return m.focusIndex < 3 // 0=name, 1=desc, 2=param
+}
+
+// updateFocus updates focus state for all inputs based on current focusIndex
+func (m *WorkflowEditorModel) updateFocus() tea.Cmd {
+	cmds := make([]tea.Cmd, 3)
+
+	for i := range cmds {
+		if i == m.focusIndex {
+			// Set focused state
+			switch i {
+			case 0:
+				cmds[i] = m.nameInput.Focus()
+			case 1:
+				cmds[i] = m.descInput.Focus()
+			case 2:
+				cmds[i] = m.paramInput.Focus()
+			}
+		} else {
+			// Remove focused state
+			switch i {
+			case 0:
+				m.nameInput.Blur()
+			case 1:
+				m.descInput.Blur()
+			case 2:
+				m.paramInput.Blur()
+			}
+		}
+	}
+
+	return tea.Batch(cmds...)
+}
+
+// setFocus sets the focus to the specified input index
+func (m *WorkflowEditorModel) setFocus(index int) tea.Cmd {
+	m.focusIndex = index
+	return m.updateFocus()
+}
+
+// setFocusByName sets focus by input name (for backward compatibility)
+func (m *WorkflowEditorModel) setFocusByName(input string) tea.Cmd {
+	switch input {
+	case "name":
+		return m.setFocus(0)
+	case "desc":
+		return m.setFocus(1)
+	case "param":
+		return m.setFocus(2)
+	default:
+		return m.setFocus(3) // No focus
+	}
 }
 
 // Update handles messages
@@ -176,8 +241,7 @@ func (m *WorkflowEditorModel) handleNameInput(msg tea.KeyMsg) (tea.Model, tea.Cm
 	case "tab", "enter":
 		m.workflow.Name = m.nameInput.Value()
 		m.mode = modeDescription
-		m.descInput.Focus()
-		return m, nil
+		return m, m.setFocus(1) // Focus desc input (index 1)
 	case "esc":
 		return m, func() tea.Msg { return cancelEditMsg{} }
 	case "ctrl+s":
@@ -195,7 +259,7 @@ func (m *WorkflowEditorModel) handleDescInput(msg tea.KeyMsg) (tea.Model, tea.Cm
 	case "tab", "enter":
 		m.workflow.Description = m.descInput.Value()
 		m.mode = modeSteps
-		return m, nil
+		return m, m.setFocus(3) // No input focused when in steps mode (index 3)
 	case "esc":
 		return m, func() tea.Msg { return cancelEditMsg{} }
 	case "ctrl+s":
@@ -204,8 +268,7 @@ func (m *WorkflowEditorModel) handleDescInput(msg tea.KeyMsg) (tea.Model, tea.Cm
 	case "shift+tab":
 		m.workflow.Description = m.descInput.Value()
 		m.mode = modeName
-		m.nameInput.Focus()
-		return m, nil
+		return m, m.setFocus(0) // Focus name input (index 0)
 	}
 
 	var cmd tea.Cmd
@@ -234,7 +297,7 @@ func (m *WorkflowEditorModel) handleStepsInput(msg tea.KeyMsg) (tea.Model, tea.C
 			m.stepCursor--
 		} else if len(m.workflow.Steps) == 0 {
 			m.mode = modeDescription
-			m.descInput.Focus()
+			return m, m.setFocus(1) // Focus desc input (index 1)
 		}
 		return m, nil
 	case "down", "j":
@@ -383,8 +446,7 @@ func (m *WorkflowEditorModel) handleEditStepInput(msg tea.KeyMsg) (tea.Model, te
 		m.paramInput.SetValue("")
 		m.paramInput.Placeholder = "Enter new parameter name"
 		m.editingParamKey = "new"
-		m.paramInput.Focus()
-		return m, nil
+		return m, m.setFocus(2) // Focus param input (index 2)
 	case "tab":
 		// Move to next parameter
 		if m.paramCursor < len(m.paramKeys)-1 {
@@ -399,8 +461,7 @@ func (m *WorkflowEditorModel) handleEditStepInput(msg tea.KeyMsg) (tea.Model, te
 		return m, nil
 	case "esc":
 		m.mode = modeSteps
-		m.paramInput.Blur()
-		return m, nil
+		return m, m.setFocus(3) // No input focused when in steps mode (index 3)
 	case "ctrl+s":
 		return m, m.saveWorkflow()
 	}

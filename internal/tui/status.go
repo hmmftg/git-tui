@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"gitflow-tui/internal/git"
+	"gitflow-tui/internal/models"
 )
 
 // StatusModel handles the status screen
@@ -15,6 +16,11 @@ type StatusModel struct {
 	styles Styles
 	status StatusResult
 	err    error
+	mode   CommandMode
+
+	// Configuration options
+	verbose          bool
+	includeUntracked bool
 }
 
 // StatusResult holds the git status data
@@ -33,8 +39,11 @@ type StatusResult struct {
 // NewStatusModel creates a new status model
 func NewStatusModel(gitSvc git.GitService, styles Styles) *StatusModel {
 	return &StatusModel{
-		gitSvc: gitSvc,
-		styles: styles,
+		gitSvc:           gitSvc,
+		styles:           styles,
+		mode:             ModeExecute, // Default to execute mode for backward compatibility
+		verbose:          false,
+		includeUntracked: true,
 	}
 }
 
@@ -47,18 +56,42 @@ func (m *StatusModel) Init() tea.Cmd {
 func (m *StatusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "r":
-			return m, m.loadStatus()
+		if m.mode == ModeConfigure {
+			switch msg.String() {
+			case "v":
+				// Toggle verbose option
+				m.verbose = !m.verbose
+			case "u":
+				// Toggle include untracked option
+				m.includeUntracked = !m.includeUntracked
+			case "enter":
+				// Save configuration
+				config := models.CommandConfig{
+					StepType:   models.StepStatus,
+					Parameters: m.GetParameters(),
+				}
+				return m, func() tea.Msg { return commandConfiguredMsg{Config: config} }
+			case "esc":
+				return m, func() tea.Msg { return commandCancelledMsg{} }
+			}
+		} else {
+			switch msg.String() {
+			case "r":
+				return m, m.loadStatus()
+			}
 		}
 
 	case statusLoadedMsg:
-		m.status = StatusResult(msg)
-		m.err = nil
+		if m.mode == ModeExecute {
+			m.status = StatusResult(msg)
+			m.err = nil
+		}
 		return m, nil
 
 	case error:
-		m.err = msg
+		if m.mode == ModeExecute {
+			m.err = msg
+		}
 		return m, nil
 	}
 
@@ -74,77 +107,114 @@ func (m *StatusModel) View() string {
 	var lines []string
 
 	// Title
-	lines = append(lines, m.styles.Title.Render(" Repository Status "))
-	lines = append(lines, "")
-
-	// Branch info
-	branchInfo := fmt.Sprintf("🔀 Branch: %s", m.styles.Value.Render(m.status.Branch))
-	if m.status.Ahead > 0 {
-		branchInfo += fmt.Sprintf(" | ⬆ Ahead: %d", m.status.Ahead)
-	}
-	if m.status.Behind > 0 {
-		branchInfo += fmt.Sprintf(" | ⬇ Behind: %d", m.status.Behind)
-	}
-	lines = append(lines, branchInfo)
-	lines = append(lines, "")
-
-	// Repository state
-	if m.status.IsClean {
-		lines = append(lines, m.styles.Success.Render("✔ Working tree clean"))
+	if m.mode == ModeConfigure {
+		lines = append(lines, m.styles.Title.Render(" Configure Status Step "))
 	} else {
-		lines = append(lines, m.styles.Warning.Render("⚡ Changes detected"))
+		lines = append(lines, m.styles.Title.Render(" Repository Status "))
 	}
 	lines = append(lines, "")
 
-	// Modified files
-	if len(m.status.Modified) > 0 {
-		lines = append(lines, m.styles.Warning.Render(fmt.Sprintf("📝 Modified (%d):", len(m.status.Modified))))
-		for _, f := range m.status.Modified {
-			lines = append(lines, fmt.Sprintf("  • %s", f))
-		}
+	if m.mode == ModeConfigure {
+		// Configuration options
+		lines = append(lines, m.styles.Help.Render("Configure status step options:"))
 		lines = append(lines, "")
-	}
 
-	// Added files
-	if len(m.status.Added) > 0 {
-		lines = append(lines, m.styles.Success.Render(fmt.Sprintf("✚ Staged (%d):", len(m.status.Added))))
-		for _, f := range m.status.Added {
-			lines = append(lines, fmt.Sprintf("  • %s", f))
+		// Verbose option
+		verboseStyle := m.styles.Info
+		if m.verbose {
+			verboseStyle = m.styles.Success
 		}
-		lines = append(lines, "")
-	}
-
-	// Deleted files
-	if len(m.status.Deleted) > 0 {
-		lines = append(lines, m.styles.Error.Render(fmt.Sprintf("🗑 Deleted (%d):", len(m.status.Deleted))))
-		for _, f := range m.status.Deleted {
-			lines = append(lines, fmt.Sprintf("  • %s", f))
+		verboseText := "Verbose output: "
+		if m.verbose {
+			verboseText += "✓ Yes"
+		} else {
+			verboseText += "✗ No"
 		}
-		lines = append(lines, "")
-	}
+		lines = append(lines, verboseStyle.Render(verboseText))
 
-	// Untracked files
-	if len(m.status.Untracked) > 0 {
-		lines = append(lines, m.styles.Info.Render(fmt.Sprintf("❔ Untracked (%d):", len(m.status.Untracked))))
-		for _, f := range m.status.Untracked {
-			lines = append(lines, fmt.Sprintf("  • %s", f))
+		// Include untracked option
+		untrackedStyle := m.styles.Info
+		if m.includeUntracked {
+			untrackedStyle = m.styles.Success
 		}
-		lines = append(lines, "")
-	}
-
-	// Conflicts
-	if len(m.status.Conflicted) > 0 {
-		lines = append(lines, m.styles.Error.Render(fmt.Sprintf("⚠ Conflicts (%d):", len(m.status.Conflicted))))
-		for _, f := range m.status.Conflicted {
-			lines = append(lines, fmt.Sprintf("  • %s", f))
+		untrackedText := "Include untracked files: "
+		if m.includeUntracked {
+			untrackedText += "✓ Yes"
+		} else {
+			untrackedText += "✗ No"
 		}
+		lines = append(lines, untrackedStyle.Render(untrackedText))
 		lines = append(lines, "")
-	}
 
-	// Summary
-	if !m.status.IsClean {
-		lines = append(lines, m.styles.Help.Render("Press 'r' to refresh | esc to go back"))
+		// Help
+		lines = append(lines, m.styles.Help.Render("v: toggle verbose | u: toggle untracked | enter: save | esc: cancel"))
 	} else {
+		// Execute mode - show status information
+		// Branch info
+		branchInfo := fmt.Sprintf("🔀 Branch: %s", m.styles.Value.Render(m.status.Branch))
+		if m.status.Ahead > 0 {
+			branchInfo += fmt.Sprintf(" | ⬆ Ahead: %d", m.status.Ahead)
+		}
+		if m.status.Behind > 0 {
+			branchInfo += fmt.Sprintf(" | ⬇ Behind: %d", m.status.Behind)
+		}
+		lines = append(lines, branchInfo)
+		lines = append(lines, "")
+
+		// Repository state
+		if m.status.IsClean {
+			lines = append(lines, m.styles.Success.Render("✔ Working tree clean"))
+		} else {
+			lines = append(lines, m.styles.Warning.Render("⚡ Changes detected"))
+		}
+		lines = append(lines, "")
+
+		// Modified files
+		if len(m.status.Modified) > 0 {
+			lines = append(lines, m.styles.Warning.Render(fmt.Sprintf("📝 Modified (%d):", len(m.status.Modified))))
+			for _, f := range m.status.Modified {
+				lines = append(lines, fmt.Sprintf("  • %s", f))
+			}
+			lines = append(lines, "")
+		}
+
+		// Added files
+		if len(m.status.Added) > 0 {
+			lines = append(lines, m.styles.Success.Render(fmt.Sprintf("✚ Staged (%d):", len(m.status.Added))))
+			for _, f := range m.status.Added {
+				lines = append(lines, fmt.Sprintf("  • %s", f))
+			}
+			lines = append(lines, "")
+		}
+
+		// Deleted files
+		if len(m.status.Deleted) > 0 {
+			lines = append(lines, m.styles.Error.Render(fmt.Sprintf("🗑 Deleted (%d):", len(m.status.Deleted))))
+			for _, f := range m.status.Deleted {
+				lines = append(lines, fmt.Sprintf("  • %s", f))
+			}
+			lines = append(lines, "")
+		}
+
+		// Untracked files
+		if len(m.status.Untracked) > 0 {
+			lines = append(lines, m.styles.Info.Render(fmt.Sprintf("❔ Untracked (%d):", len(m.status.Untracked))))
+			for _, f := range m.status.Untracked {
+				lines = append(lines, fmt.Sprintf("  • %s", f))
+			}
+			lines = append(lines, "")
+		}
+
+		// Conflicts
+		if len(m.status.Conflicted) > 0 {
+			lines = append(lines, m.styles.Error.Render(fmt.Sprintf("⚠ Conflicts (%d):", len(m.status.Conflicted))))
+			for _, f := range m.status.Conflicted {
+				lines = append(lines, fmt.Sprintf("  • %s", f))
+			}
+			lines = append(lines, "")
+		}
+
+		// Summary
 		lines = append(lines, m.styles.Help.Render("Press 'r' to refresh | esc to go back"))
 	}
 
@@ -171,6 +241,52 @@ func (m *StatusModel) loadStatus() tea.Cmd {
 			Behind:     status.Behind,
 		})
 	}
+}
+
+// CommandModel interface implementation
+
+// SetMode sets the operating mode of the command model
+func (m *StatusModel) SetMode(mode CommandMode) {
+	m.mode = mode
+	if mode == ModeConfigure {
+		m.err = nil
+	}
+}
+
+// GetMode returns the current operating mode
+func (m *StatusModel) GetMode() CommandMode {
+	return m.mode
+}
+
+// GetParameters returns the collected parameters (only valid in configure mode)
+func (m *StatusModel) GetParameters() map[string]string {
+	if m.mode != ModeConfigure {
+		return nil
+	}
+
+	params := make(map[string]string)
+	params["verbose"] = "false"
+	if m.verbose {
+		params["verbose"] = "true"
+	}
+	params["includeUntracked"] = "false"
+	if m.includeUntracked {
+		params["includeUntracked"] = "true"
+	}
+	return params
+}
+
+// Execute returns a command to execute the operation (only valid in execute mode)
+func (m *StatusModel) Execute() tea.Cmd {
+	if m.mode != ModeExecute {
+		return nil
+	}
+	return m.loadStatus()
+}
+
+// GetStepType returns the step type this command model represents
+func (m *StatusModel) GetStepType() models.StepType {
+	return models.StepStatus
 }
 
 type statusLoadedMsg StatusResult

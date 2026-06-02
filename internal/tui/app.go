@@ -72,7 +72,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Global navigation keys
+		// Check if any input is focused before handling global keys
+		if m.isInputFocused() {
+			// Let the current view handle the key without global interception
+			break
+		}
+
+		// Global navigation keys (only when no input is focused)
 		switch msg.String() {
 		case "q", "ctrl+c":
 			if m.CurrentView == models.ViewHome {
@@ -513,6 +519,21 @@ func (m *AppModel) refreshRepoInfo() tea.Cmd {
 			Status:  status,
 		})
 	}
+}
+
+// isInputFocused checks if any text input is currently focused in the current view
+func (m *AppModel) isInputFocused() bool {
+	switch m.CurrentView {
+	case models.ViewWorkflowEditor:
+		if m.workflowEditorModel != nil {
+			return m.workflowEditorModel.IsInputFocused()
+		}
+	case models.ViewCommit:
+		if m.commitModel != nil {
+			return m.commitModel.input.Focused()
+		}
+	}
+	return false
 }
 
 // Message types
