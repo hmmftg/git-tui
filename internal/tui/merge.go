@@ -52,7 +52,7 @@ func (m *MergeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.branches) > 0 && m.cursor < len(m.branches) {
 				return m, m.merge(m.branches[m.cursor])
 			}
-		case "r":
+		case "R":
 			return m, m.loadBranches()
 		case "c":
 			// Continue merge after resolving conflicts
@@ -63,6 +63,11 @@ func (m *MergeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Abort merge
 			if m.conflict {
 				return m, m.abortMerge()
+			}
+		case "r":
+			// Open conflict resolver
+			if m.conflict {
+				return m, func() tea.Msg { return openConflictResolverMsg{} }
 			}
 		}
 
@@ -174,9 +179,9 @@ func (m *MergeModel) View() string {
 	}
 
 	// Help
-	help := "↑/↓: navigate | enter: merge | r: refresh | esc: back"
+	help := "↑/↓: navigate | enter: merge | R: refresh | esc: back"
 	if m.conflict {
-		help = "c: continue | a: abort | esc: back"
+		help = "r: resolve | c: continue | a: abort | esc: back"
 	}
 	lines = append(lines, m.styles.Help.Render(help))
 

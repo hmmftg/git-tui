@@ -20,6 +20,7 @@ const (
 	ViewCheckout
 	ViewPull
 	ViewPush
+	ViewConflictResolver
 )
 
 // Status represents the parsed git status
@@ -147,4 +148,18 @@ const (
 	StepSuccess
 	StepFailed
 	StepSkipped
+)
+
+// CommandConfig represents the configuration data for a workflow step command
+type CommandConfig struct {
+	StepType   StepType
+	Parameters map[string]string
+}
+
+// ExecutionMode represents how a workflow should be executed
+type ExecutionMode int
+
+const (
+	ExecuteNormal ExecutionMode = iota
+	ExecuteDryRun
 )

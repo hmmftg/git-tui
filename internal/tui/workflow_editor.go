@@ -29,7 +29,7 @@ type WorkflowEditorModel struct {
 	isNew     bool
 
 	// Editing mode
-	mode       editorMode // 0=name, 1=description, 2=steps, 3=adding step
+	mode       editorMode // 0=name, 1=description, 2=steps, 3=adding step, 4=editing step
 	stepCursor int        // for steps list
 
 	// Inputs
@@ -40,6 +40,11 @@ type WorkflowEditorModel struct {
 	// Step type selection for adding
 	stepTypeCursor int
 	availableTypes []models.StepType
+
+	// Parameter editing
+	paramCursor     int      // cursor for parameter list
+	paramKeys       []string // parameter keys for current step
+	editingParamKey string   // currently editing parameter key
 }
 
 type editorMode int
@@ -49,6 +54,7 @@ const (
 	modeDescription
 	modeSteps
 	modeAddStep
+	modeEditStep
 )
 
 // NewWorkflowEditor creates a workflow editor for a new or existing workflow
@@ -129,6 +135,8 @@ func (m *WorkflowEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleStepsInput(msg)
 		case modeAddStep:
 			return m.handleAddStepInput(msg)
+		case modeEditStep:
+			return m.handleEditStepInput(msg)
 		}
 	}
 
@@ -221,7 +229,15 @@ func (m *WorkflowEditorModel) handleStepsInput(msg tea.KeyMsg) (tea.Model, tea.C
 		}
 		return m, nil
 	case "enter":
-		// Edit step parameters (simplified - just show current)
+		// Edit step parameters
+		if len(m.workflow.Steps) > 0 && m.stepCursor < len(m.workflow.Steps) {
+			m.mode = modeEditStep
+			m.paramCursor = 0
+			m.updateParamKeys()
+			m.paramInput.SetValue("")
+			m.paramInput.Placeholder = "Enter value"
+			m.paramInput.Focus()
+		}
 		return m, nil
 	case "tab":
 		m.mode = modeName
@@ -232,7 +248,9 @@ func (m *WorkflowEditorModel) handleStepsInput(msg tea.KeyMsg) (tea.Model, tea.C
 		m.descInput.Focus()
 		return m, nil
 	case "esc":
-		return m, func() tea.Msg { return cancelEditMsg{} }
+		m.mode = modeDescription
+		m.descInput.Focus()
+		return m, nil
 	case "ctrl+s":
 		return m, m.saveWorkflow()
 	}
@@ -276,7 +294,13 @@ func (m *WorkflowEditorModel) handleAddStepInput(msg tea.KeyMsg) (tea.Model, tea
 
 		m.workflow.Steps = append(m.workflow.Steps, newStep)
 		m.stepCursor = len(m.workflow.Steps) - 1
-		m.mode = modeSteps
+		// Automatically enter edit mode to configure parameters
+		m.mode = modeEditStep
+		m.paramCursor = 0
+		m.updateParamKeys()
+		m.paramInput.SetValue("")
+		m.paramInput.Placeholder = "Enter value"
+		m.paramInput.Focus()
 		return m, nil
 	case "esc":
 		m.mode = modeSteps
@@ -284,6 +308,107 @@ func (m *WorkflowEditorModel) handleAddStepInput(msg tea.KeyMsg) (tea.Model, tea
 	}
 
 	return m, nil
+}
+
+func (m *WorkflowEditorModel) handleEditStepInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.workflow.Steps) == 0 || m.stepCursor >= len(m.workflow.Steps) {
+		return m, nil
+	}
+
+	step := &m.workflow.Steps[m.stepCursor]
+
+	switch msg.String() {
+	case "up", "k":
+		if m.paramCursor > 0 {
+			m.paramCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.paramCursor < len(m.paramKeys)-1 {
+			m.paramCursor++
+		}
+		return m, nil
+	case "enter":
+		// Save the parameter value or add new parameter
+		if m.editingParamKey == "new" {
+			// Adding new parameter
+			newKey := m.paramInput.Value()
+			if newKey != "" {
+				step.Parameters[newKey] = ""
+				m.updateParamKeys()
+				// Find and select the new parameter
+				for i, key := range m.paramKeys {
+					if key == newKey {
+						m.paramCursor = i
+						break
+					}
+				}
+				m.paramInput.SetValue("")
+				m.paramInput.Placeholder = "Enter value"
+				m.editingParamKey = ""
+			}
+		} else if m.paramCursor < len(m.paramKeys) {
+			// Editing existing parameter value
+			key := m.paramKeys[m.paramCursor]
+			step.Parameters[key] = m.paramInput.Value()
+			m.paramInput.SetValue("")
+		}
+		return m, nil
+	case "d":
+		// Delete parameter
+		if m.paramCursor < len(m.paramKeys) {
+			key := m.paramKeys[m.paramCursor]
+			delete(step.Parameters, key)
+			m.updateParamKeys()
+			if m.paramCursor >= len(m.paramKeys) && m.paramCursor > 0 {
+				m.paramCursor--
+			}
+		}
+		return m, nil
+	case "a":
+		// Add new parameter
+		m.paramInput.SetValue("")
+		m.paramInput.Placeholder = "Enter new parameter name"
+		m.editingParamKey = "new"
+		m.paramInput.Focus()
+		return m, nil
+	case "tab":
+		// Move to next parameter
+		if m.paramCursor < len(m.paramKeys)-1 {
+			m.paramCursor++
+		}
+		return m, nil
+	case "shift+tab":
+		// Move to previous parameter
+		if m.paramCursor > 0 {
+			m.paramCursor--
+		}
+		return m, nil
+	case "esc":
+		m.mode = modeSteps
+		m.paramInput.Blur()
+		return m, nil
+	case "ctrl+s":
+		return m, m.saveWorkflow()
+	}
+
+	// Handle text input for parameter values
+	var cmd tea.Cmd
+	m.paramInput, cmd = m.paramInput.Update(msg)
+	return m, cmd
+}
+
+func (m *WorkflowEditorModel) updateParamKeys() {
+	if len(m.workflow.Steps) == 0 || m.stepCursor >= len(m.workflow.Steps) {
+		m.paramKeys = []string{}
+		return
+	}
+
+	step := m.workflow.Steps[m.stepCursor]
+	m.paramKeys = make([]string, 0, len(step.Parameters))
+	for key := range step.Parameters {
+		m.paramKeys = append(m.paramKeys, key)
+	}
 }
 
 func (m *WorkflowEditorModel) saveWorkflow() tea.Cmd {
@@ -356,6 +481,35 @@ func (m *WorkflowEditorModel) View() string {
 		}
 		lines = append(lines, "")
 		lines = append(lines, m.styles.Help.Render("enter:add | esc:cancel"))
+	} else if m.mode == modeEditStep {
+		// Show step parameter editor
+		if len(m.workflow.Steps) > 0 && m.stepCursor < len(m.workflow.Steps) {
+			step := m.workflow.Steps[m.stepCursor]
+			lines = append(lines, m.styles.Info.Render(fmt.Sprintf("  Editing parameters for: %s", step.Type.String())))
+			lines = append(lines, "")
+
+			if len(m.paramKeys) == 0 {
+				lines = append(lines, m.styles.Dimmed.Render("  (No parameters. Press 'a' to add)"))
+			} else {
+				for i, key := range m.paramKeys {
+					cursor := "  "
+					if i == m.paramCursor {
+						cursor = m.styles.Key.Render("▸ ")
+					}
+					value := step.Parameters[key]
+					line := fmt.Sprintf("%s%s: %s", cursor, key, value)
+					if i == m.paramCursor {
+						lines = append(lines, m.styles.Warning.Render(line))
+					} else {
+						lines = append(lines, line)
+					}
+				}
+			}
+			lines = append(lines, "")
+			lines = append(lines, m.paramInput.View())
+			lines = append(lines, "")
+		}
+		lines = append(lines, m.styles.Help.Render("↑/↓:nav | enter:save | a:add | d:del | esc:back"))
 	} else {
 		// Show steps list
 		if len(m.workflow.Steps) == 0 {
@@ -382,13 +536,6 @@ func (m *WorkflowEditorModel) View() string {
 		}
 		lines = append(lines, "")
 	}
-
-	// Help
-	help := "tab:next | shift+tab:prev | ↑/↓:nav | a:add | x:del | shift+↑/↓:reorder | ctrl+s:save | esc:cancel"
-	if m.mode == modeAddStep {
-		help = "↑/↓:select | enter:add | esc:cancel"
-	}
-	lines = append(lines, m.styles.Help.Render(help))
 
 	return m.styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }

@@ -187,5 +187,38 @@ func (m *MockGitService) AbortRebase() error {
 	return nil
 }
 
+func (m *MockGitService) GetConflictedFiles() ([]string, error) {
+	m.record("diff", "--name-only", "--diff-filter=U")
+	if m.ShouldFail["conflicted-files"] {
+		return nil, errors.New("get conflicted files failed")
+	}
+	return m.StatusVal.Conflicted, nil
+}
+
+func (m *MockGitService) ReadFile(path string) (string, error) {
+	m.record("read-file", path)
+	if m.ShouldFail["read-file"] {
+		return "", errors.New("read file failed")
+	}
+	// Return mock content with conflict markers
+	return fmt.Sprintf("<<<<<<< HEAD\nours content for %s\n=======\ntheirs content for %s\n>>>>>>> branch", path, path), nil
+}
+
+func (m *MockGitService) ResolveConflict(path string, choice ResolutionChoice) error {
+	m.record("resolve-conflict", path, fmt.Sprintf("%d", choice))
+	if m.ShouldFail["resolve-conflict"] {
+		return errors.New("resolve conflict failed")
+	}
+	// Remove from conflicted list
+	newConflicted := []string{}
+	for _, f := range m.StatusVal.Conflicted {
+		if f != path {
+			newConflicted = append(newConflicted, f)
+		}
+	}
+	m.StatusVal.Conflicted = newConflicted
+	return nil
+}
+
 // Verify that MockGitService implements GitService
 var _ GitService = (*MockGitService)(nil)

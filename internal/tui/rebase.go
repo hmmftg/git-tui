@@ -52,7 +52,7 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.branches) > 0 && m.cursor < len(m.branches) {
 				return m, m.rebase(m.branches[m.cursor])
 			}
-		case "r":
+		case "R":
 			return m, m.loadBranches()
 		case "c":
 			// Continue rebase after resolving conflicts
@@ -63,6 +63,11 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Abort rebase
 			if m.conflict {
 				return m, m.abortRebase()
+			}
+		case "r":
+			// Open conflict resolver
+			if m.conflict {
+				return m, func() tea.Msg { return openConflictResolverMsg{} }
 			}
 		}
 
@@ -172,9 +177,9 @@ func (m *RebaseModel) View() string {
 	}
 
 	// Help
-	help := "↑/↓: navigate | enter: rebase | r: refresh | esc: back"
+	help := "↑/↓: navigate | enter: rebase | R: refresh | esc: back"
 	if m.conflict {
-		help = "c: continue | a: abort | esc: back"
+		help = "r: resolve | c: continue | a: abort | esc: back"
 	}
 	lines = append(lines, m.styles.Help.Render(help))
 

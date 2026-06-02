@@ -26,16 +26,17 @@ type AppModel struct {
 	Height      int
 
 	// View models
-	statusModel         *StatusModel
-	commitModel         *CommitModel
-	checkoutModel       *CheckoutModel
-	pushModel           *PushModel
-	pullModel           *PullModel
-	mergeModel          *MergeModel
-	rebaseModel         *RebaseModel
-	workflowModel       *WorkflowModel
-	workflowEditorModel *WorkflowEditorModel
-	executionModel      *ExecutionModel
+	statusModel           *StatusModel
+	commitModel           *CommitModel
+	checkoutModel         *CheckoutModel
+	pushModel             *PushModel
+	pullModel             *PullModel
+	mergeModel            *MergeModel
+	rebaseModel           *RebaseModel
+	workflowModel         *WorkflowModel
+	workflowEditorModel   *WorkflowEditorModel
+	conflictResolverModel *ConflictResolverModel
+	executionModel        *ExecutionModel
 
 	// Message/Error
 	Message     string
@@ -172,6 +173,59 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.workflowEditorModel = nil
 		return m, m.navigateTo(models.ViewWorkflowBuilder)
 
+	case openConflictResolverMsg:
+		// Open conflict resolver
+		m.conflictResolverModel = NewConflictResolver(m.GitService, m.Styles)
+		return m, tea.Batch(
+			m.navigateTo(models.ViewConflictResolver),
+			m.conflictResolverModel.Init(),
+		)
+
+	case conflictsResolvedMsg:
+		// Conflicts resolved, return to merge/rebase
+		m.conflictResolverModel = nil
+		m.Message = "✔ All conflicts resolved"
+		m.MessageType = "success"
+		// Try to continue the operation
+		if m.CurrentView == models.ViewMerge || m.CurrentView == models.ViewConflictResolver {
+			return m, tea.Batch(
+				m.navigateTo(models.ViewMerge),
+				func() tea.Msg { return mergeContinueMsg{} },
+			)
+		} else if m.CurrentView == models.ViewRebase {
+			return m, tea.Batch(
+				m.navigateTo(models.ViewRebase),
+				func() tea.Msg { return rebaseContinueMsg{} },
+			)
+		}
+		return m, nil
+
+	case conflictsAbortedMsg:
+		// Conflicts resolution aborted
+		m.conflictResolverModel = nil
+		m.Message = "✔ Conflict resolution aborted"
+		m.MessageType = "info"
+		if m.CurrentView == models.ViewMerge {
+			return m, tea.Batch(
+				m.navigateTo(models.ViewMerge),
+				func() tea.Msg { return mergeAbortedMsg{} },
+			)
+		} else if m.CurrentView == models.ViewRebase {
+			return m, tea.Batch(
+				m.navigateTo(models.ViewRebase),
+				func() tea.Msg { return rebaseAbortedMsg{} },
+			)
+		}
+		return m, nil
+
+	case conflictsCancelledMsg:
+		// User cancelled resolver without resolving
+		m.conflictResolverModel = nil
+		if m.CurrentView == models.ViewMerge {
+			return m, m.navigateTo(models.ViewMerge)
+		}
+		return m, m.navigateTo(models.ViewRebase)
+
 	case viewChangeMsg:
 		m.CurrentView = models.ViewType(msg)
 		// Initialize view-specific models
@@ -197,6 +251,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case models.ViewRebase:
 			m.rebaseModel = NewRebaseModel(m.GitService, m.Styles)
 			return m, m.rebaseModel.Init()
+		case models.ViewConflictResolver:
+			// Conflict resolver is already set by openConflictResolverMsg handler
+			return m, nil
 		case models.ViewWorkflowBuilder:
 			m.workflowModel = NewWorkflowModel(m.GitService, m.ConfigMgr, m.Styles)
 			return m, m.workflowModel.Init()
@@ -265,6 +322,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebaseModel = rm.(*RebaseModel)
 			cmd = c
 		}
+	case models.ViewConflictResolver:
+		if m.conflictResolverModel != nil {
+			crm, c := m.conflictResolverModel.Update(msg)
+			m.conflictResolverModel = crm.(*ConflictResolverModel)
+			cmd = c
+		}
 	case models.ViewWorkflowBuilder:
 		if m.workflowModel != nil {
 			wm, c := m.workflowModel.Update(msg)
@@ -326,6 +389,10 @@ func (m *AppModel) View() string {
 	case models.ViewRebase:
 		if m.rebaseModel != nil {
 			content = m.rebaseModel.View()
+		}
+	case models.ViewConflictResolver:
+		if m.conflictResolverModel != nil {
+			content = m.conflictResolverModel.View()
 		}
 	case models.ViewWorkflowBuilder:
 		if m.workflowModel != nil {
@@ -401,7 +468,6 @@ func (m *AppModel) renderHome() string {
 	}
 
 	var menu []string
-	menu = append(menu, m.Styles.Title.Render(" GitFlow TUI "))
 	menu = append(menu, "")
 
 	for _, item := range menuItems {
@@ -454,3 +520,4 @@ type repoInfoMsg models.RepositoryInfo
 type viewChangeMsg models.ViewType
 type errorMsg string
 type successMsg string
+type openConflictResolverMsg struct{}

@@ -147,13 +147,9 @@ func TestMockGitService_FailureCases(t *testing.T) {
 
 func TestStatusStruct(t *testing.T) {
 	status := models.Status{
-		Branch:     "feature/test",
-		Modified:   []string{"file1.go", "file2.go"},
-		Added:      []string{"file3.go"},
-		Deleted:    []string{"file4.go"},
-		Untracked:  []string{"file5.go"},
-		Conflicted: []string{},
-		IsClean:    false,
+		Branch:   "feature/test",
+		Modified: []string{"file1.go", "file2.go"},
+		IsClean:  false,
 	}
 
 	if status.Branch != "feature/test" {

@@ -30,6 +30,12 @@ type deleteWorkflowMsg int // index of workflow to delete
 // duplicateWorkflowMsg is sent when user wants to duplicate a workflow
 type duplicateWorkflowMsg int // index of workflow to duplicate
 
+// workflowsLoadedMsg is sent when workflows are loaded from config
+type workflowsLoadedMsg struct {
+	workflows    []models.Workflow
+	saveToConfig bool
+}
+
 // WorkflowModel handles the workflow builder screen
 type WorkflowModel struct {
 	gitSvc    git.GitService
@@ -55,14 +61,18 @@ func NewWorkflowModel(gitSvc git.GitService, configMgr *config.Manager, styles S
 
 // Init initializes the model and loads workflows from config
 func (m *WorkflowModel) Init() tea.Cmd {
+	return m.loadWorkflows()
+}
+
+// loadWorkflows loads workflows from config
+func (m *WorkflowModel) loadWorkflows() tea.Cmd {
 	return func() tea.Msg {
 		// Load config if not already loaded
 		if m.configMgr == nil {
 			m.configMgr = config.NewManager()
 			if err := m.configMgr.Load(); err != nil {
 				// Config load error - use defaults
-				m.workflows = m.createDefaultWorkflows()
-				return nil
+				return workflowsLoadedMsg{workflows: m.createDefaultWorkflows(), saveToConfig: true}
 			}
 		}
 
@@ -70,15 +80,9 @@ func (m *WorkflowModel) Init() tea.Cmd {
 		workflows := m.configMgr.GetWorkflows()
 		if len(workflows) == 0 {
 			// No workflows in config, create defaults
-			m.workflows = m.createDefaultWorkflows()
-			// Save defaults to config
-			for _, wf := range m.workflows {
-				m.configMgr.SaveWorkflow(wf)
-			}
-		} else {
-			m.workflows = workflows
+			return workflowsLoadedMsg{workflows: m.createDefaultWorkflows(), saveToConfig: true}
 		}
-		return nil
+		return workflowsLoadedMsg{workflows: workflows, saveToConfig: false}
 	}
 }
 
@@ -96,6 +100,15 @@ func (m *WorkflowModel) createDefaultWorkflows() []models.Workflow {
 // Update handles messages
 func (m *WorkflowModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case workflowsLoadedMsg:
+		m.workflows = msg.workflows
+		if msg.saveToConfig {
+			// Save defaults to config
+			for _, wf := range m.workflows {
+				m.configMgr.SaveWorkflow(wf)
+			}
+		}
+		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":

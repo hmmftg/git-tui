@@ -8,6 +8,15 @@ import (
 	"gitflow-tui/internal/models"
 )
 
+// ResolutionChoice represents how to resolve a conflict
+type ResolutionChoice int
+
+const (
+	Ours ResolutionChoice = iota
+	Theirs
+	Both
+)
+
 // GitService defines the interface for git operations
 type GitService interface {
 	IsGitRepo() bool
@@ -28,6 +37,11 @@ type GitService interface {
 	AbortMerge() error
 	ContinueRebase() error
 	AbortRebase() error
+
+	// Conflict resolution methods
+	GetConflictedFiles() ([]string, error)
+	ReadFile(path string) (string, error)
+	ResolveConflict(path string, choice ResolutionChoice) error
 }
 
 // service implements GitService
@@ -122,7 +136,7 @@ func (s *service) Status() (models.Status, error) {
 
 func (s *service) parseBranchLine(line string) (branch string, ahead, behind int) {
 	line = strings.TrimPrefix(line, "## ")
-	
+
 	// Handle detached HEAD
 	if strings.HasPrefix(line, "HEAD (no branch)") {
 		return "(detached HEAD)", 0, 0
@@ -132,7 +146,7 @@ func (s *service) parseBranchLine(line string) (branch string, ahead, behind int
 	if idx := strings.Index(line, "..."); idx != -1 {
 		branch = line[:idx]
 		rest := line[idx:]
-		
+
 		// Parse ahead/behind
 		if start := strings.Index(rest, "[ahead "); start != -1 {
 			end := strings.Index(rest[start:], "]")
@@ -221,7 +235,7 @@ func (s *service) GetBranches() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	branches := strings.Split(strings.TrimSpace(output), "\n")
 	return branches, nil
 }
@@ -284,5 +298,62 @@ func (s *service) ContinueRebase() error {
 // AbortRebase aborts the current rebase
 func (s *service) AbortRebase() error {
 	_, err := s.exec("rebase", "--abort")
+	return err
+}
+
+// GetConflictedFiles returns list of files with merge conflicts
+func (s *service) GetConflictedFiles() ([]string, error) {
+	output, err := s.exec("diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return nil, err
+	}
+	files := strings.Split(strings.TrimSpace(output), "\n")
+	if len(files) == 1 && files[0] == "" {
+		return []string{}, nil
+	}
+	return files, nil
+}
+
+// ReadFile reads the content of a file
+func (s *service) ReadFile(path string) (string, error) {
+	output, err := s.exec("show", fmt.Sprintf(":/%s", path))
+	if err != nil {
+		// Try reading from working directory if not in index
+		content, err := s.exec("cat-file", "-p", fmt.Sprintf("HEAD:%s", path))
+		if err != nil {
+			// Last resort - read directly from filesystem
+			cmd := exec.Command("cmd", "/c", "type", path)
+			cmd.Dir = s.repoPath
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return "", err
+			}
+			return string(out), nil
+		}
+		return content, nil
+	}
+	return output, nil
+}
+
+// ResolveConflict resolves a conflicted file using the specified choice
+func (s *service) ResolveConflict(path string, choice ResolutionChoice) error {
+	switch choice {
+	case Ours:
+		_, err := s.exec("checkout", "--ours", path)
+		if err != nil {
+			return err
+		}
+	case Theirs:
+		_, err := s.exec("checkout", "--theirs", path)
+		if err != nil {
+			return err
+		}
+	case Both:
+		// Keep both (conflict markers) - just stage as-is
+		// No checkout needed
+	}
+
+	// Stage the resolved file
+	_, err := s.exec("add", path)
 	return err
 }
