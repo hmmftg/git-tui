@@ -15,10 +15,7 @@ const (
 )
 
 // CommandConfig represents the configuration data returned by a command model
-type CommandConfig struct {
-	StepType   models.StepType
-	Parameters map[string]string
-}
+// Use models.CommandConfig from the models package
 
 // CommandModel defines the interface for all command models that can be used
 // in both execution and configuration modes
@@ -43,7 +40,7 @@ type CommandModel interface {
 
 // Message types for command configuration
 type commandConfiguredMsg struct {
-	Config CommandConfig
+	Config models.CommandConfig
 }
 
 type commandCancelledMsg struct{}

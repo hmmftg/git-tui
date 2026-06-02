@@ -28,8 +28,11 @@ type WorkflowEditorModel struct {
 	workflow  models.Workflow
 	isNew     bool
 
+	// Command registry for creating command models
+	commandRegistry *CommandRegistry
+
 	// Editing mode
-	mode       editorMode // 0=name, 1=description, 2=steps, 3=adding step, 4=editing step
+	mode       editorMode // 0=name, 1=description, 2=steps, 3=adding step, 4=editing step, 5=command selection
 	stepCursor int        // for steps list
 
 	// Inputs
@@ -45,6 +48,9 @@ type WorkflowEditorModel struct {
 	paramCursor     int      // cursor for parameter list
 	paramKeys       []string // parameter keys for current step
 	editingParamKey string   // currently editing parameter key
+
+	// Command configuration
+	currentCommandModel CommandModel // Currently active command model for configuration
 }
 
 type editorMode int
@@ -55,6 +61,7 @@ const (
 	modeSteps
 	modeAddStep
 	modeEditStep
+	modeCommandSelection
 )
 
 // NewWorkflowEditor creates a workflow editor for a new or existing workflow
@@ -70,16 +77,9 @@ func NewWorkflowEditor(gitSvc git.GitService, configMgr *config.Manager, styles 
 	paramTi := textinput.New()
 	paramTi.Placeholder = "Parameter value"
 
-	// Available step types
-	availableTypes := []models.StepType{
-		models.StepStatus,
-		models.StepCommit,
-		models.StepPush,
-		models.StepPull,
-		models.StepCheckout,
-		models.StepMerge,
-		models.StepRebase,
-	}
+	// Initialize command registry
+	commandRegistry := NewCommandRegistry(gitSvc, styles)
+	availableTypes := commandRegistry.GetAvailableStepTypes()
 
 	var wf models.Workflow
 	isNew := false
@@ -100,18 +100,19 @@ func NewWorkflowEditor(gitSvc git.GitService, configMgr *config.Manager, styles 
 	}
 
 	return &WorkflowEditorModel{
-		gitSvc:         gitSvc,
-		configMgr:      configMgr,
-		styles:         styles,
-		workflow:       wf,
-		isNew:          isNew,
-		mode:           modeName,
-		stepCursor:     0,
-		nameInput:      nameTi,
-		descInput:      descTi,
-		paramInput:     paramTi,
-		availableTypes: availableTypes,
-		stepTypeCursor: 0,
+		gitSvc:          gitSvc,
+		configMgr:       configMgr,
+		styles:          styles,
+		workflow:        wf,
+		isNew:           isNew,
+		commandRegistry: commandRegistry,
+		mode:            modeName,
+		stepCursor:      0,
+		nameInput:       nameTi,
+		descInput:       descTi,
+		paramInput:      paramTi,
+		availableTypes:  availableTypes,
+		stepTypeCursor:  0,
 	}
 }
 
@@ -137,7 +138,34 @@ func (m *WorkflowEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleAddStepInput(msg)
 		case modeEditStep:
 			return m.handleEditStepInput(msg)
+		case modeCommandSelection:
+			return m.handleCommandSelectionInput(msg)
 		}
+
+	case commandConfiguredMsg:
+		// Handle command configuration completion
+		if m.currentCommandModel != nil {
+			config := msg.Config
+			// Update or create the step with the new configuration
+			m.updateStepWithConfig(config)
+			m.currentCommandModel = nil
+			m.mode = modeSteps
+		}
+		return m, nil
+
+	case commandCancelledMsg:
+		// Handle command configuration cancellation
+		m.currentCommandModel = nil
+		m.mode = modeSteps
+		return m, nil
+	}
+
+	// Forward messages to active command model
+	if m.currentCommandModel != nil {
+		var cmd tea.Cmd
+		model, cmd := m.currentCommandModel.Update(msg)
+		m.currentCommandModel = model.(CommandModel) // Type assert back to CommandModel
+		return m, cmd
 	}
 
 	return m, cmd
@@ -229,14 +257,18 @@ func (m *WorkflowEditorModel) handleStepsInput(msg tea.KeyMsg) (tea.Model, tea.C
 		}
 		return m, nil
 	case "enter":
-		// Edit step parameters
+		// Edit step using command selection
 		if len(m.workflow.Steps) > 0 && m.stepCursor < len(m.workflow.Steps) {
-			m.mode = modeEditStep
-			m.paramCursor = 0
-			m.updateParamKeys()
-			m.paramInput.SetValue("")
-			m.paramInput.Placeholder = "Enter value"
-			m.paramInput.Focus()
+			m.mode = modeCommandSelection
+			m.stepTypeCursor = 0
+			// Find current step type in available types
+			currentStep := m.workflow.Steps[m.stepCursor]
+			for i, stepType := range m.availableTypes {
+				if stepType == currentStep.Type {
+					m.stepTypeCursor = i
+					break
+				}
+			}
 		}
 		return m, nil
 	case "tab":
@@ -271,36 +303,17 @@ func (m *WorkflowEditorModel) handleAddStepInput(msg tea.KeyMsg) (tea.Model, tea
 		}
 		return m, nil
 	case "enter":
-		// Add the selected step type
-		stepType := m.availableTypes[m.stepTypeCursor]
-		newStep := models.WorkflowStep{
-			Type:        stepType,
-			Description: fmt.Sprintf("%s step", stepType.String()),
-			Parameters:  map[string]string{},
+		// Create command model for selected step type
+		if m.stepTypeCursor < len(m.availableTypes) {
+			stepType := m.availableTypes[m.stepTypeCursor]
+			commandModel := m.commandRegistry.CreateCommandModel(stepType, ModeConfigure)
+			if commandModel != nil {
+				m.currentCommandModel = commandModel
+				// Set up for new step creation
+				m.stepCursor = len(m.workflow.Steps) // Will be set when config is saved
+				return m, commandModel.Init()
+			}
 		}
-
-		// Add default parameters for specific step types
-		switch stepType {
-		case models.StepCommit:
-			newStep.Parameters["message"] = "Auto commit"
-			newStep.Parameters["autoAdd"] = "true"
-		case models.StepPush:
-			newStep.Parameters["remote"] = "origin"
-		case models.StepMerge:
-			newStep.Parameters["target"] = "main"
-		case models.StepCheckout:
-			newStep.Parameters["branch"] = "develop"
-		}
-
-		m.workflow.Steps = append(m.workflow.Steps, newStep)
-		m.stepCursor = len(m.workflow.Steps) - 1
-		// Automatically enter edit mode to configure parameters
-		m.mode = modeEditStep
-		m.paramCursor = 0
-		m.updateParamKeys()
-		m.paramInput.SetValue("")
-		m.paramInput.Placeholder = "Enter value"
-		m.paramInput.Focus()
 		return m, nil
 	case "esc":
 		m.mode = modeSteps
@@ -480,7 +493,19 @@ func (m *WorkflowEditorModel) View() string {
 			lines = append(lines, fmt.Sprintf("%s%s", cursor, st.String()))
 		}
 		lines = append(lines, "")
-		lines = append(lines, m.styles.Help.Render("enter:add | esc:cancel"))
+		lines = append(lines, m.styles.Help.Render("enter:configure | esc:cancel"))
+	} else if m.mode == modeCommandSelection {
+		// Show command type selector for editing
+		lines = append(lines, m.styles.Info.Render("  Select command type:"))
+		for i, st := range m.availableTypes {
+			cursor := "  "
+			if i == m.stepTypeCursor {
+				cursor = m.styles.Key.Render("▸ ")
+			}
+			lines = append(lines, fmt.Sprintf("%s%s", cursor, st.String()))
+		}
+		lines = append(lines, "")
+		lines = append(lines, m.styles.Help.Render("enter:configure | esc:cancel"))
 	} else if m.mode == modeEditStep {
 		// Show step parameter editor
 		if len(m.workflow.Steps) > 0 && m.stepCursor < len(m.workflow.Steps) {
@@ -537,5 +562,61 @@ func (m *WorkflowEditorModel) View() string {
 		lines = append(lines, "")
 	}
 
+	// If there's an active command model, display it instead of the normal UI
+	if m.currentCommandModel != nil {
+		return m.currentCommandModel.View()
+	}
+
 	return m.styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+// handleCommandSelectionInput handles input for command selection mode
+func (m *WorkflowEditorModel) handleCommandSelectionInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.stepTypeCursor > 0 {
+			m.stepTypeCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.stepTypeCursor < len(m.availableTypes)-1 {
+			m.stepTypeCursor++
+		}
+		return m, nil
+	case "enter":
+		// Create command model for selected step type
+		if m.stepTypeCursor < len(m.availableTypes) {
+			stepType := m.availableTypes[m.stepTypeCursor]
+			commandModel := m.commandRegistry.CreateCommandModel(stepType, ModeConfigure)
+			if commandModel != nil {
+				m.currentCommandModel = commandModel
+				return m, commandModel.Init()
+			}
+		}
+		return m, nil
+	case "esc":
+		m.mode = modeSteps
+		return m, nil
+	}
+	return m, nil
+}
+
+// updateStepWithConfig updates the current step with new configuration
+func (m *WorkflowEditorModel) updateStepWithConfig(config models.CommandConfig) {
+	if len(m.workflow.Steps) == 0 {
+		// Create new step
+		newStep := models.WorkflowStep{
+			Type:        config.StepType,
+			Parameters:  config.Parameters,
+			Description: fmt.Sprintf("%s step", config.StepType.String()),
+		}
+		m.workflow.Steps = append(m.workflow.Steps, newStep)
+		m.stepCursor = len(m.workflow.Steps) - 1
+	} else if m.stepCursor < len(m.workflow.Steps) {
+		// Update existing step
+		step := &m.workflow.Steps[m.stepCursor]
+		step.Type = config.StepType
+		step.Parameters = config.Parameters
+		step.Description = fmt.Sprintf("%s step", config.StepType.String())
+	}
 }

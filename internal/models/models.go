@@ -155,11 +155,3 @@ type CommandConfig struct {
 	StepType   StepType
 	Parameters map[string]string
 }
-
-// ExecutionMode represents how a workflow should be executed
-type ExecutionMode int
-
-const (
-	ExecuteNormal ExecutionMode = iota
-	ExecuteDryRun
-)
