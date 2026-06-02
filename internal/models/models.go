@@ -12,6 +12,7 @@ const (
 	ViewStatus
 	ViewCommit
 	ViewWorkflowBuilder
+	ViewWorkflowEditor
 	ViewExecution
 	ViewMerge
 	ViewRebase

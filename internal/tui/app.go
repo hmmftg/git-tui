@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/google/uuid"
 
+	"gitflow-tui/internal/config"
 	"gitflow-tui/internal/git"
 	"gitflow-tui/internal/models"
 )
@@ -17,20 +20,22 @@ type AppModel struct {
 	CurrentView models.ViewType
 	Repository  models.RepositoryInfo
 	GitService  git.GitService
+	ConfigMgr   *config.Manager
 	Styles      Styles
 	Width       int
 	Height      int
 
 	// View models
-	statusModel    *StatusModel
-	commitModel    *CommitModel
-	checkoutModel  *CheckoutModel
-	pushModel      *PushModel
-	pullModel      *PullModel
-	mergeModel     *MergeModel
-	rebaseModel    *RebaseModel
-	workflowModel  *WorkflowModel
-	executionModel *ExecutionModel
+	statusModel         *StatusModel
+	commitModel         *CommitModel
+	checkoutModel       *CheckoutModel
+	pushModel           *PushModel
+	pullModel           *PullModel
+	mergeModel          *MergeModel
+	rebaseModel         *RebaseModel
+	workflowModel       *WorkflowModel
+	workflowEditorModel *WorkflowEditorModel
+	executionModel      *ExecutionModel
 
 	// Message/Error
 	Message     string
@@ -39,9 +44,14 @@ type AppModel struct {
 
 // NewApp creates a new TUI application
 func NewApp(gitSvc git.GitService) *AppModel {
+	// Initialize config manager
+	cfg := config.NewManager()
+	cfg.Load() // Try to load existing config
+
 	return &AppModel{
 		CurrentView: models.ViewHome,
 		GitService:  gitSvc,
+		ConfigMgr:   cfg,
 		Styles:      DefaultStyles(),
 	}
 }
@@ -125,6 +135,43 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.executionModel.Init(),
 		)
 
+	case createWorkflowMsg:
+		// Open workflow editor for new workflow (from template or blank)
+		var wf *models.Workflow
+		if msg.fromTemplate != nil {
+			copy := *msg.fromTemplate
+			copy.ID = uuid.New().String()
+			copy.Name = copy.Name + " Copy"
+			copy.CreatedAt = time.Now()
+			wf = &copy
+		}
+		m.workflowEditorModel = NewWorkflowEditor(m.GitService, m.ConfigMgr, m.Styles, wf, wf != nil)
+		return m, tea.Batch(
+			m.navigateTo(models.ViewWorkflowEditor),
+			m.workflowEditorModel.Init(),
+		)
+
+	case editWorkflowMsg:
+		// Open workflow editor for existing workflow
+		wf := models.Workflow(msg)
+		m.workflowEditorModel = NewWorkflowEditor(m.GitService, m.ConfigMgr, m.Styles, &wf, false)
+		return m, tea.Batch(
+			m.navigateTo(models.ViewWorkflowEditor),
+			m.workflowEditorModel.Init(),
+		)
+
+	case saveWorkflowMsg:
+		// Workflow saved, return to workflow list and refresh
+		m.Message = fmt.Sprintf("Workflow saved: %s", models.Workflow(msg).Name)
+		m.MessageType = "success"
+		m.workflowEditorModel = nil
+		return m, m.navigateTo(models.ViewWorkflowBuilder)
+
+	case cancelEditMsg:
+		// Cancel editing, return to workflow list
+		m.workflowEditorModel = nil
+		return m, m.navigateTo(models.ViewWorkflowBuilder)
+
 	case viewChangeMsg:
 		m.CurrentView = models.ViewType(msg)
 		// Initialize view-specific models
@@ -151,8 +198,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebaseModel = NewRebaseModel(m.GitService, m.Styles)
 			return m, m.rebaseModel.Init()
 		case models.ViewWorkflowBuilder:
-			m.workflowModel = NewWorkflowModel(m.GitService, m.Styles)
+			m.workflowModel = NewWorkflowModel(m.GitService, m.ConfigMgr, m.Styles)
 			return m, m.workflowModel.Init()
+		case models.ViewWorkflowEditor:
+			// Workflow editor model is already set by createWorkflowMsg/editWorkflowMsg handlers
+			return m, nil
 		case models.ViewExecution:
 			// Execution model is already set by runWorkflowMsg handler
 			return m, nil
@@ -221,6 +271,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workflowModel = wm.(*WorkflowModel)
 			cmd = c
 		}
+	case models.ViewWorkflowEditor:
+		if m.workflowEditorModel != nil {
+			em, c := m.workflowEditorModel.Update(msg)
+			m.workflowEditorModel = em.(*WorkflowEditorModel)
+			cmd = c
+		}
 	case models.ViewExecution:
 		if m.executionModel != nil {
 			em, c := m.executionModel.Update(msg)
@@ -274,6 +330,10 @@ func (m *AppModel) View() string {
 	case models.ViewWorkflowBuilder:
 		if m.workflowModel != nil {
 			content = m.workflowModel.View()
+		}
+	case models.ViewWorkflowEditor:
+		if m.workflowEditorModel != nil {
+			content = m.workflowEditorModel.View()
 		}
 	case models.ViewExecution:
 		if m.executionModel != nil {

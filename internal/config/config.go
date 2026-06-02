@@ -66,7 +66,7 @@ func (m *Manager) GetWorkflows() []models.Workflow {
 // SaveWorkflow saves a workflow to config
 func (m *Manager) SaveWorkflow(workflow models.Workflow) error {
 	workflows := m.GetWorkflows()
-	
+
 	// Check if workflow already exists
 	found := false
 	for i, w := range workflows {
@@ -88,7 +88,7 @@ func (m *Manager) SaveWorkflow(workflow models.Workflow) error {
 // DeleteWorkflow removes a workflow from config
 func (m *Manager) DeleteWorkflow(id string) error {
 	workflows := m.GetWorkflows()
-	
+
 	newWorkflows := make([]models.Workflow, 0, len(workflows))
 	for _, w := range workflows {
 		if w.ID != id {
@@ -110,46 +110,121 @@ func (m *Manager) SetSetting(key string, value interface{}) {
 	m.viper.Set(key, value)
 }
 
-// DefaultConfig returns the default configuration
-func DefaultConfig() map[string]interface{} {
-	return map[string]interface{}{
-		"workflows": []models.Workflow{
-			{
-				Name:        "Quick Commit",
-				Description: "Stage, commit and push all changes",
-				Steps: []models.WorkflowStep{
-					{
-						Type:        models.StepStatus,
-						Description: "Check repository status",
-					},
-					{
-						Type:        models.StepCommit,
-						Description: "Commit all changes",
-						Parameters: map[string]string{
-							"autoAdd": "true",
-							"message":  "WIP: auto commit",
-						},
-					},
-					{
-						Type:        models.StepPush,
-						Description: "Push to remote",
+// GetTemplates returns built-in workflow templates
+func GetTemplates() []models.Workflow {
+	return []models.Workflow{
+		{
+			Name:        "Quick Commit",
+			Description: "Stage, commit and push all changes",
+			Steps: []models.WorkflowStep{
+				{
+					Type:        models.StepStatus,
+					Description: "Check repository status",
+				},
+				{
+					Type:        models.StepCommit,
+					Description: "Commit all changes",
+					Parameters: map[string]string{
+						"autoAdd": "true",
+						"message": "WIP: auto commit",
 					},
 				},
+				{
+					Type:        models.StepPush,
+					Description: "Push to remote",
+				},
 			},
-			{
-				Name:        "Sync",
-				Description: "Pull latest changes from remote",
-				Steps: []models.WorkflowStep{
-					{
-						Type:        models.StepStatus,
-						Description: "Check current status",
+		},
+		{
+			Name:        "Release",
+			Description: "Prepare a release: commit, push, merge to main",
+			Steps: []models.WorkflowStep{
+				{
+					Type:        models.StepStatus,
+					Description: "Check repository status",
+				},
+				{
+					Type:        models.StepCommit,
+					Description: "Commit changes",
+					Parameters: map[string]string{
+						"message": "chore: prepare release",
 					},
-					{
-						Type:        models.StepPull,
-						Description: "Pull from remote",
+				},
+				{
+					Type:        models.StepPush,
+					Description: "Push to remote",
+				},
+				{
+					Type:        models.StepMerge,
+					Description: "Merge to main",
+					Parameters: map[string]string{
+						"target": "main",
 					},
 				},
 			},
 		},
+		{
+			Name:        "Hotfix",
+			Description: "Quick fix: commit, push, merge to main and develop",
+			Steps: []models.WorkflowStep{
+				{
+					Type:        models.StepStatus,
+					Description: "Check repository status",
+				},
+				{
+					Type:        models.StepCommit,
+					Description: "Commit hotfix",
+					Parameters: map[string]string{
+						"message": "fix: hotfix",
+					},
+				},
+				{
+					Type:        models.StepPush,
+					Description: "Push to remote",
+				},
+				{
+					Type:        models.StepMerge,
+					Description: "Merge to main",
+					Parameters: map[string]string{
+						"target": "main",
+					},
+				},
+				{
+					Type:        models.StepCheckout,
+					Description: "Switch to develop",
+					Parameters: map[string]string{
+						"branch": "develop",
+					},
+				},
+				{
+					Type:        models.StepMerge,
+					Description: "Merge hotfix to develop",
+					Parameters: map[string]string{
+						"target": "develop",
+					},
+				},
+			},
+		},
+		{
+			Name:        "Sync",
+			Description: "Pull latest changes from remote",
+			Steps: []models.WorkflowStep{
+				{
+					Type:        models.StepPull,
+					Description: "Pull from remote",
+				},
+				{
+					Type:        models.StepStatus,
+					Description: "Check current status",
+				},
+			},
+		},
+	}
+}
+
+// DefaultConfig returns the default configuration with all templates
+func DefaultConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"workflows": GetTemplates(),
 	}
 }
