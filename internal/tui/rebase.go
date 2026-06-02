@@ -12,16 +12,12 @@ import (
 
 // RebaseModel handles the rebase screen
 type RebaseModel struct {
-	gitSvc       git.GitService
-	styles       Styles
+	BaseModel
+	*ConflictHandler
 	branches     []string
 	cursor       int
-	message      string
-	err          error
 	success      bool
-	conflict     bool
 	targetBranch string
-	mode         CommandMode
 
 	// Configuration options
 	interactive bool
@@ -31,11 +27,10 @@ type RebaseModel struct {
 // NewRebaseModel creates a new rebase model
 func NewRebaseModel(gitSvc git.GitService, styles Styles) *RebaseModel {
 	return &RebaseModel{
-		gitSvc:      gitSvc,
-		styles:      styles,
-		mode:        ModeExecute, // Default to execute mode for backward compatibility
-		interactive: false,
-		autoStash:   false,
+		BaseModel:       NewBaseModel(gitSvc, styles),
+		ConflictHandler: NewConflictHandler("rebase"),
+		interactive:     false,
+		autoStash:       false,
 	}
 }
 
@@ -48,7 +43,7 @@ func (m *RebaseModel) Init() tea.Cmd {
 func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.mode == ModeConfigure {
+		if m.Mode == ModeConfigure {
 			switch msg.String() {
 			case "up", "k":
 				if m.cursor > 0 {
@@ -93,64 +88,61 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.loadBranches()
 			case "c":
 				// Continue rebase after resolving conflicts
-				if m.conflict {
+				if m.HasConflict() {
 					return m, m.continueRebase()
 				}
 			case "a":
 				// Abort rebase
-				if m.conflict {
+				if m.HasConflict() {
 					return m, m.abortRebase()
 				}
 			case "r":
 				// Open conflict resolver
-				if m.conflict {
-					return m, func() tea.Msg { return openConflictResolverMsg{} }
+				if m.HasConflict() {
+					return m, func() tea.Msg { return OpenConflictResolverMsg{} }
 				}
 			}
 		}
 
 	case branchesLoadedMsg:
 		m.branches = []string(msg)
-		m.err = nil
+		m.Err = nil
 		return m, nil
 
-	case rebaseSuccessMsg:
+	case RebaseSuccessMsg:
 		// Check for conflicts after rebase
-		if m.gitSvc.HasConflicts() {
-			m.conflict = true
-			m.message = fmt.Sprintf("⚠ Rebase onto %s has conflicts! Resolve them and press 'c' to continue.", msg)
+		if m.GitSvc.HasConflicts() {
+			m.SetConflict(string(msg))
+			m.Message = m.GetConflictMessage(string(msg))
 			return m, nil
 		}
 		m.success = true
-		m.message = fmt.Sprintf("✔ Rebased onto %s successfully!", msg)
-		m.err = nil
-		m.conflict = false
+		m.SetSuccess("Rebased onto %s successfully!", msg)
+		m.ClearConflict()
 		return m, nil
 
-	case rebaseContinueMsg:
+	case RebaseContinueMsg:
 		// Check if conflicts are resolved
-		if m.gitSvc.HasConflicts() {
-			m.message = "⚠ Still have conflicts! Resolve them before continuing."
+		if m.GitSvc.HasConflicts() {
+			m.Message = m.GetStillConflictMessage()
 			return m, nil
 		}
 		m.success = true
-		m.message = "✔ Rebase completed successfully!"
-		m.conflict = false
+		m.SetSuccess("Rebase completed successfully!")
+		m.ClearConflict()
 		return m, nil
 
-	case rebaseAbortedMsg:
-		m.conflict = false
-		m.message = "✔ Rebase aborted"
-		m.err = nil
+	case RebaseAbortedMsg:
+		m.Reset()
+		m.SetSuccess("Rebase aborted")
 		return m, nil
 
 	case error:
-		m.err = msg
-		m.message = fmt.Sprintf("✘ Error: %v", msg)
-		// Check if it's a conflict error
-		if m.gitSvc.HasConflicts() {
-			m.conflict = true
-			m.message = fmt.Sprintf("⚠ Rebase conflict! Resolve files and press 'c' to continue.\nError: %v", msg)
+		if m.GitSvc.HasConflicts() {
+			m.SetConflict(m.targetBranch)
+			m.Message = m.GetConflictErrorMessage(msg)
+		} else {
+			m.SetError(msg)
 		}
 		return m, nil
 	}
@@ -163,36 +155,36 @@ func (m *RebaseModel) View() string {
 	var lines []string
 
 	// Title
-	if m.mode == ModeConfigure {
-		lines = append(lines, m.styles.Title.Render(" Configure Rebase Step "))
+	if m.Mode == ModeConfigure {
+		lines = append(lines, m.Styles.Title.Render(" Configure Rebase Step "))
 	} else {
-		lines = append(lines, m.styles.Title.Render(" Rebase Branch "))
+		lines = append(lines, m.Styles.Title.Render(" Rebase Branch "))
 	}
 	lines = append(lines, "")
 
-	if m.mode == ModeConfigure {
+	if m.Mode == ModeConfigure {
 		// Configuration options
-		lines = append(lines, m.styles.Help.Render("Configure rebase step options:"))
+		lines = append(lines, m.Styles.Help.Render("Configure rebase step options:"))
 		lines = append(lines, "")
 
 		// Branch selection
-		lines = append(lines, m.styles.Help.Render("Select base branch to rebase ONTO:"))
+		lines = append(lines, m.Styles.Help.Render("Select base branch to rebase ONTO:"))
 		lines = append(lines, "")
 
 		// Branch list
 		if len(m.branches) == 0 {
-			lines = append(lines, m.styles.Info.Render("Loading branches..."))
+			lines = append(lines, m.Styles.Info.Render("Loading branches..."))
 		} else {
-			current, _ := m.gitSvc.CurrentBranch()
+			current, _ := m.GitSvc.CurrentBranch()
 			for i, branch := range m.branches {
 				cursor := "  "
 				if m.cursor == i {
-					cursor = m.styles.Key.Render("▸ ")
+					cursor = m.Styles.Key.Render("▸ ")
 				}
 
 				// Don't show current branch
 				if branch == current {
-					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.styles.Dimmed.Render(branch)))
+					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.Styles.Dimmed.Render(branch)))
 				} else {
 					lines = append(lines, fmt.Sprintf("%s%s", cursor, branch))
 				}
@@ -201,9 +193,9 @@ func (m *RebaseModel) View() string {
 		lines = append(lines, "")
 
 		// Interactive option
-		interactiveStyle := m.styles.Info
+		interactiveStyle := m.Styles.Info
 		if m.interactive {
-			interactiveStyle = m.styles.Success
+			interactiveStyle = m.Styles.Success
 		}
 		interactiveText := "Interactive rebase: "
 		if m.interactive {
@@ -214,9 +206,9 @@ func (m *RebaseModel) View() string {
 		lines = append(lines, interactiveStyle.Render(interactiveText))
 
 		// Auto-stash option
-		autoStashStyle := m.styles.Info
+		autoStashStyle := m.Styles.Info
 		if m.autoStash {
-			autoStashStyle = m.styles.Success
+			autoStashStyle = m.Styles.Success
 		}
 		autoStashText := "Auto stash: "
 		if m.autoStash {
@@ -228,29 +220,29 @@ func (m *RebaseModel) View() string {
 		lines = append(lines, "")
 
 		// Help
-		lines = append(lines, m.styles.Help.Render("↑/↓: navigate | i: toggle interactive | s: toggle auto-stash | enter: save | esc: cancel"))
+		lines = append(lines, m.Styles.Help.Render("↑/↓: navigate | i: toggle interactive | s: toggle auto-stash | enter: save | esc: cancel"))
 	} else {
 		// Execute mode
 		// Description
-		current, _ := m.gitSvc.CurrentBranch()
-		lines = append(lines, m.styles.Info.Render(fmt.Sprintf("Current branch: %s", current)))
+		current, _ := m.GitSvc.CurrentBranch()
+		lines = append(lines, m.Styles.Info.Render(fmt.Sprintf("Current branch: %s", current)))
 		lines = append(lines, "")
-		lines = append(lines, m.styles.Help.Render("Select base branch to rebase ONTO:"))
+		lines = append(lines, m.Styles.Help.Render("Select base branch to rebase ONTO:"))
 		lines = append(lines, "")
 
 		// Branch list
 		if len(m.branches) == 0 {
-			lines = append(lines, m.styles.Info.Render("Loading branches..."))
+			lines = append(lines, m.Styles.Info.Render("Loading branches..."))
 		} else {
 			for i, branch := range m.branches {
 				cursor := "  "
 				if m.cursor == i {
-					cursor = m.styles.Key.Render("▸ ")
+					cursor = m.Styles.Key.Render("▸ ")
 				}
 
 				// Don't show current branch
 				if branch == current {
-					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.styles.Dimmed.Render(branch)))
+					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.Styles.Dimmed.Render(branch)))
 				} else {
 					lines = append(lines, fmt.Sprintf("%s%s", cursor, branch))
 				}
@@ -260,40 +252,33 @@ func (m *RebaseModel) View() string {
 		lines = append(lines, "")
 	}
 
-	// Conflict warning banner
-	if m.conflict {
-		banner := m.styles.Warning.Render(" ⚠ REBASE CONFLICTS DETECTED ")
+	// Conflict warning banner and message
+	if banner := m.ConflictHandler.ViewBanner(m.Styles); banner != "" {
 		lines = append(lines, banner)
-		lines = append(lines, m.styles.Warning.Render("Please resolve conflicts in your editor, then:"))
 		lines = append(lines, "")
 	}
 
 	// Message
-	if m.message != "" {
-		if m.conflict {
-			lines = append(lines, m.styles.Warning.Render(m.message))
-		} else if m.err != nil {
-			lines = append(lines, m.styles.Error.Render(m.message))
+	if m.HasMessage() {
+		if m.HasConflict() {
+			lines = append(lines, m.Styles.Warning.Render(m.Message))
 		} else {
-			lines = append(lines, m.styles.Success.Render(m.message))
+			lines = append(lines, m.RenderMessage())
 		}
 		lines = append(lines, "")
 	}
 
 	// Help
-	help := "↑/↓: navigate | enter: rebase | R: refresh | esc: back"
-	if m.conflict {
-		help = "r: resolve | c: continue | a: abort | esc: back"
-	}
-	lines = append(lines, m.styles.Help.Render(help))
+	help := m.ConflictHandler.GetHelpText("↑/↓: navigate | enter: rebase | R: refresh | esc: back")
+	lines = append(lines, m.Styles.Help.Render(help))
 
-	return m.styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 // loadBranches loads all branches
 func (m *RebaseModel) loadBranches() tea.Cmd {
 	return func() tea.Msg {
-		branches, err := m.gitSvc.GetBranches()
+		branches, err := m.GitSvc.GetBranches()
 		if err != nil {
 			return err
 		}
@@ -305,11 +290,11 @@ func (m *RebaseModel) loadBranches() tea.Cmd {
 func (m *RebaseModel) rebase(branch string) tea.Cmd {
 	m.targetBranch = branch
 	return func() tea.Msg {
-		err := m.gitSvc.Rebase(branch)
+		err := m.GitSvc.Rebase(branch)
 		if err != nil {
 			return err
 		}
-		return rebaseSuccessMsg(branch)
+		return RebaseSuccessMsg(branch)
 	}
 }
 
@@ -317,27 +302,27 @@ func (m *RebaseModel) rebase(branch string) tea.Cmd {
 func (m *RebaseModel) continueRebase() tea.Cmd {
 	return func() tea.Msg {
 		// Check if still has conflicts
-		if m.gitSvc.HasConflicts() {
+		if m.GitSvc.HasConflicts() {
 			return fmt.Errorf("still has unresolved conflicts")
 		}
 		// Continue the rebase
-		err := m.gitSvc.ContinueRebase()
+		err := m.GitSvc.ContinueRebase()
 		if err != nil {
 			return err
 		}
-		return rebaseContinueMsg{}
+		return RebaseContinueMsg{}
 	}
 }
 
 // abortRebase aborts the rebase
 func (m *RebaseModel) abortRebase() tea.Cmd {
 	return func() tea.Msg {
-		err := m.gitSvc.AbortRebase()
+		err := m.GitSvc.AbortRebase()
 		if err != nil {
 			return err
 		}
-		m.conflict = false
-		return rebaseAbortedMsg{}
+		m.ClearConflict()
+		return RebaseAbortedMsg{}
 	}
 }
 
@@ -345,22 +330,20 @@ func (m *RebaseModel) abortRebase() tea.Cmd {
 
 // SetMode sets the operating mode of the command model
 func (m *RebaseModel) SetMode(mode CommandMode) {
-	m.mode = mode
+	m.BaseModel.SetMode(mode)
 	if mode == ModeConfigure {
-		m.message = ""
-		m.err = nil
-		m.conflict = false
+		m.ConflictHandler.Reset()
 	}
 }
 
 // GetMode returns the current operating mode
 func (m *RebaseModel) GetMode() CommandMode {
-	return m.mode
+	return m.BaseModel.GetMode()
 }
 
 // GetParameters returns the collected parameters (only valid in configure mode)
 func (m *RebaseModel) GetParameters() map[string]string {
-	if m.mode != ModeConfigure {
+	if m.Mode != ModeConfigure {
 		return nil
 	}
 
@@ -381,7 +364,7 @@ func (m *RebaseModel) GetParameters() map[string]string {
 
 // Execute returns a command to execute the operation (only valid in execute mode)
 func (m *RebaseModel) Execute() tea.Cmd {
-	if m.mode != ModeExecute {
+	if m.Mode != ModeExecute {
 		return nil
 	}
 	if m.cursor >= 0 && m.cursor < len(m.branches) {
@@ -394,7 +377,3 @@ func (m *RebaseModel) Execute() tea.Cmd {
 func (m *RebaseModel) GetStepType() models.StepType {
 	return models.StepRebase
 }
-
-type rebaseSuccessMsg string
-type rebaseContinueMsg struct{}
-type rebaseAbortedMsg struct{}

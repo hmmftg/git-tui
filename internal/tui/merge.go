@@ -12,16 +12,12 @@ import (
 
 // MergeModel handles the merge screen
 type MergeModel struct {
-	gitSvc       git.GitService
-	styles       Styles
+	BaseModel
+	*ConflictHandler
 	branches     []string
 	cursor       int
-	message      string
-	err          error
 	success      bool
-	conflict     bool
 	targetBranch string
-	mode         CommandMode
 
 	// Configuration options
 	noCommit bool
@@ -31,11 +27,10 @@ type MergeModel struct {
 // NewMergeModel creates a new merge model
 func NewMergeModel(gitSvc git.GitService, styles Styles) *MergeModel {
 	return &MergeModel{
-		gitSvc:   gitSvc,
-		styles:   styles,
-		mode:     ModeExecute, // Default to execute mode for backward compatibility
-		noCommit: false,
-		squash:   false,
+		BaseModel:       NewBaseModel(gitSvc, styles),
+		ConflictHandler: NewConflictHandler("merge"),
+		noCommit:        false,
+		squash:          false,
 	}
 }
 
@@ -48,7 +43,7 @@ func (m *MergeModel) Init() tea.Cmd {
 func (m *MergeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.mode == ModeConfigure {
+		if m.Mode == ModeConfigure {
 			switch msg.String() {
 			case "up", "k":
 				if m.cursor > 0 {
@@ -93,64 +88,61 @@ func (m *MergeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.loadBranches()
 			case "c":
 				// Continue merge after resolving conflicts
-				if m.conflict {
+				if m.HasConflict() {
 					return m, m.continueMerge()
 				}
 			case "a":
 				// Abort merge
-				if m.conflict {
+				if m.HasConflict() {
 					return m, m.abortMerge()
 				}
 			case "r":
 				// Open conflict resolver
-				if m.conflict {
-					return m, func() tea.Msg { return openConflictResolverMsg{} }
+				if m.HasConflict() {
+					return m, func() tea.Msg { return OpenConflictResolverMsg{} }
 				}
 			}
 		}
 
 	case branchesLoadedMsg:
 		m.branches = []string(msg)
-		m.err = nil
+		m.Err = nil
 		return m, nil
 
-	case mergeSuccessMsg:
+	case MergeSuccessMsg:
 		// Check for conflicts after merge
-		if m.gitSvc.HasConflicts() {
-			m.conflict = true
-			m.message = fmt.Sprintf("⚠ Merge of %s has conflicts! Resolve them and press 'c' to continue.", msg)
+		if m.GitSvc.HasConflicts() {
+			m.SetConflict(string(msg))
+			m.Message = m.GetConflictMessage(string(msg))
 			return m, nil
 		}
 		m.success = true
-		m.message = fmt.Sprintf("✔ Merged %s successfully!", msg)
-		m.err = nil
-		m.conflict = false
+		m.SetSuccess("Merged %s successfully!", msg)
+		m.ClearConflict()
 		return m, nil
 
-	case mergeContinueMsg:
+	case MergeContinueMsg:
 		// Check if conflicts are resolved
-		if m.gitSvc.HasConflicts() {
-			m.message = "⚠ Still have conflicts! Resolve them before continuing."
+		if m.GitSvc.HasConflicts() {
+			m.Message = m.GetStillConflictMessage()
 			return m, nil
 		}
 		m.success = true
-		m.message = "✔ Merge completed successfully!"
-		m.conflict = false
+		m.SetSuccess("Merge completed successfully!")
+		m.ClearConflict()
 		return m, nil
 
-	case mergeAbortedMsg:
-		m.conflict = false
-		m.message = "✔ Merge aborted"
-		m.err = nil
+	case MergeAbortedMsg:
+		m.Reset()
+		m.SetSuccess("Merge aborted")
 		return m, nil
 
 	case error:
-		m.err = msg
-		m.message = fmt.Sprintf("✘ Error: %v", msg)
-		// Check if it's a conflict error
-		if m.gitSvc.HasConflicts() {
-			m.conflict = true
-			m.message = fmt.Sprintf("⚠ Merge conflict! Resolve files and press 'c' to continue.\nError: %v", msg)
+		if m.GitSvc.HasConflicts() {
+			m.SetConflict(m.targetBranch)
+			m.Message = m.GetConflictErrorMessage(msg)
+		} else {
+			m.SetError(msg)
 		}
 		return m, nil
 	}
@@ -163,36 +155,36 @@ func (m *MergeModel) View() string {
 	var lines []string
 
 	// Title
-	if m.mode == ModeConfigure {
-		lines = append(lines, m.styles.Title.Render(" Configure Merge Step "))
+	if m.Mode == ModeConfigure {
+		lines = append(lines, m.Styles.Title.Render(" Configure Merge Step "))
 	} else {
-		lines = append(lines, m.styles.Title.Render(" Merge Branch "))
+		lines = append(lines, m.Styles.Title.Render(" Merge Branch "))
 	}
 	lines = append(lines, "")
 
-	if m.mode == ModeConfigure {
+	if m.Mode == ModeConfigure {
 		// Configuration options
-		lines = append(lines, m.styles.Help.Render("Configure merge step options:"))
+		lines = append(lines, m.Styles.Help.Render("Configure merge step options:"))
 		lines = append(lines, "")
 
 		// Branch selection
-		lines = append(lines, m.styles.Help.Render("Select target branch to merge:"))
+		lines = append(lines, m.Styles.Help.Render("Select target branch to merge:"))
 		lines = append(lines, "")
 
 		// Branch list
 		if len(m.branches) == 0 {
-			lines = append(lines, m.styles.Info.Render("Loading branches..."))
+			lines = append(lines, m.Styles.Info.Render("Loading branches..."))
 		} else {
-			current, _ := m.gitSvc.CurrentBranch()
+			current, _ := m.GitSvc.CurrentBranch()
 			for i, branch := range m.branches {
 				cursor := "  "
 				if m.cursor == i {
-					cursor = m.styles.Key.Render("▸ ")
+					cursor = m.Styles.Key.Render("▸ ")
 				}
 
 				// Don't show current branch
 				if branch == current {
-					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.styles.Dimmed.Render(branch)))
+					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.Styles.Dimmed.Render(branch)))
 				} else {
 					lines = append(lines, fmt.Sprintf("%s%s", cursor, branch))
 				}
@@ -201,9 +193,9 @@ func (m *MergeModel) View() string {
 		lines = append(lines, "")
 
 		// No-commit option
-		noCommitStyle := m.styles.Info
+		noCommitStyle := m.Styles.Info
 		if m.noCommit {
-			noCommitStyle = m.styles.Success
+			noCommitStyle = m.Styles.Success
 		}
 		noCommitText := "No commit: "
 		if m.noCommit {
@@ -214,9 +206,9 @@ func (m *MergeModel) View() string {
 		lines = append(lines, noCommitStyle.Render(noCommitText))
 
 		// Squash option
-		squashStyle := m.styles.Info
+		squashStyle := m.Styles.Info
 		if m.squash {
-			squashStyle = m.styles.Success
+			squashStyle = m.Styles.Success
 		}
 		squashText := "Squash merge: "
 		if m.squash {
@@ -228,31 +220,31 @@ func (m *MergeModel) View() string {
 		lines = append(lines, "")
 
 		// Help
-		lines = append(lines, m.styles.Help.Render("↑/↓: navigate | n: toggle no-commit | s: toggle squash | enter: save | esc: cancel"))
+		lines = append(lines, m.Styles.Help.Render("↑/↓: navigate | n: toggle no-commit | s: toggle squash | enter: save | esc: cancel"))
 	} else {
 		// Execute mode
 		// Description
-		current, _ := m.gitSvc.CurrentBranch()
-		lines = append(lines, m.styles.Info.Render(fmt.Sprintf("Current branch: %s", current)))
+		current, _ := m.GitSvc.CurrentBranch()
+		lines = append(lines, m.Styles.Info.Render(fmt.Sprintf("Current branch: %s", current)))
 		lines = append(lines, "")
 
 		// Common targets hint
-		lines = append(lines, m.styles.Help.Render("Select branch to merge INTO current branch:"))
+		lines = append(lines, m.Styles.Help.Render("Select branch to merge INTO current branch:"))
 		lines = append(lines, "")
 
 		// Branch list
 		if len(m.branches) == 0 {
-			lines = append(lines, m.styles.Info.Render("Loading branches..."))
+			lines = append(lines, m.Styles.Info.Render("Loading branches..."))
 		} else {
 			for i, branch := range m.branches {
 				cursor := "  "
 				if m.cursor == i {
-					cursor = m.styles.Key.Render("▸ ")
+					cursor = m.Styles.Key.Render("▸ ")
 				}
 
 				// Don't show current branch
 				if branch == current {
-					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.styles.Dimmed.Render(branch)))
+					lines = append(lines, fmt.Sprintf("%s%s (current)", cursor, m.Styles.Dimmed.Render(branch)))
 				} else {
 					lines = append(lines, fmt.Sprintf("%s%s", cursor, branch))
 				}
@@ -262,40 +254,33 @@ func (m *MergeModel) View() string {
 		lines = append(lines, "")
 	}
 
-	// Conflict warning banner
-	if m.conflict {
-		banner := m.styles.Warning.Render(" ⚠ MERGE CONFLICTS DETECTED ")
+	// Conflict warning banner and message
+	if banner := m.ConflictHandler.ViewBanner(m.Styles); banner != "" {
 		lines = append(lines, banner)
-		lines = append(lines, m.styles.Warning.Render("Please resolve conflicts in your editor, then:"))
 		lines = append(lines, "")
 	}
 
 	// Message
-	if m.message != "" {
-		if m.conflict {
-			lines = append(lines, m.styles.Warning.Render(m.message))
-		} else if m.err != nil {
-			lines = append(lines, m.styles.Error.Render(m.message))
+	if m.HasMessage() {
+		if m.HasConflict() {
+			lines = append(lines, m.Styles.Warning.Render(m.Message))
 		} else {
-			lines = append(lines, m.styles.Success.Render(m.message))
+			lines = append(lines, m.RenderMessage())
 		}
 		lines = append(lines, "")
 	}
 
 	// Help
-	help := "↑/↓: navigate | enter: merge | R: refresh | esc: back"
-	if m.conflict {
-		help = "r: resolve | c: continue | a: abort | esc: back"
-	}
-	lines = append(lines, m.styles.Help.Render(help))
+	help := m.ConflictHandler.GetHelpText("↑/↓: navigate | enter: merge | R: refresh | esc: back")
+	lines = append(lines, m.Styles.Help.Render(help))
 
-	return m.styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 // loadBranches loads all branches
 func (m *MergeModel) loadBranches() tea.Cmd {
 	return func() tea.Msg {
-		branches, err := m.gitSvc.GetBranches()
+		branches, err := m.GitSvc.GetBranches()
 		if err != nil {
 			return err
 		}
@@ -307,11 +292,11 @@ func (m *MergeModel) loadBranches() tea.Cmd {
 func (m *MergeModel) merge(branch string) tea.Cmd {
 	m.targetBranch = branch
 	return func() tea.Msg {
-		err := m.gitSvc.Merge(branch)
+		err := m.GitSvc.Merge(branch)
 		if err != nil {
 			return err
 		}
-		return mergeSuccessMsg(branch)
+		return MergeSuccessMsg(branch)
 	}
 }
 
@@ -319,28 +304,28 @@ func (m *MergeModel) merge(branch string) tea.Cmd {
 func (m *MergeModel) continueMerge() tea.Cmd {
 	return func() tea.Msg {
 		// First check if still has conflicts
-		if m.gitSvc.HasConflicts() {
+		if m.GitSvc.HasConflicts() {
 			return fmt.Errorf("still has unresolved conflicts")
 		}
 		// Try to commit the merge resolution
-		err := m.gitSvc.Commit("Merge conflict resolution")
+		err := m.GitSvc.Commit("Merge conflict resolution")
 		if err != nil {
 			// If no changes to commit, that's OK - merge was already done
-			return mergeContinueMsg{}
+			return MergeContinueMsg{}
 		}
-		return mergeContinueMsg{}
+		return MergeContinueMsg{}
 	}
 }
 
 // abortMerge aborts the merge
 func (m *MergeModel) abortMerge() tea.Cmd {
 	return func() tea.Msg {
-		err := m.gitSvc.AbortMerge()
+		err := m.GitSvc.AbortMerge()
 		if err != nil {
 			return err
 		}
-		m.conflict = false
-		return mergeAbortedMsg{}
+		m.Reset()
+		return MergeAbortedMsg{}
 	}
 }
 
@@ -348,22 +333,20 @@ func (m *MergeModel) abortMerge() tea.Cmd {
 
 // SetMode sets the operating mode of the command model
 func (m *MergeModel) SetMode(mode CommandMode) {
-	m.mode = mode
+	m.BaseModel.SetMode(mode)
 	if mode == ModeConfigure {
-		m.message = ""
-		m.err = nil
-		m.conflict = false
+		m.ConflictHandler.Reset()
 	}
 }
 
 // GetMode returns the current operating mode
 func (m *MergeModel) GetMode() CommandMode {
-	return m.mode
+	return m.BaseModel.GetMode()
 }
 
 // GetParameters returns the collected parameters (only valid in configure mode)
 func (m *MergeModel) GetParameters() map[string]string {
-	if m.mode != ModeConfigure {
+	if m.Mode != ModeConfigure {
 		return nil
 	}
 
@@ -384,7 +367,7 @@ func (m *MergeModel) GetParameters() map[string]string {
 
 // Execute returns a command to execute the operation (only valid in execute mode)
 func (m *MergeModel) Execute() tea.Cmd {
-	if m.mode != ModeExecute {
+	if m.Mode != ModeExecute {
 		return nil
 	}
 	if m.cursor >= 0 && m.cursor < len(m.branches) {
@@ -397,7 +380,3 @@ func (m *MergeModel) Execute() tea.Cmd {
 func (m *MergeModel) GetStepType() models.StepType {
 	return models.StepMerge
 }
-
-type mergeSuccessMsg string
-type mergeContinueMsg struct{}
-type mergeAbortedMsg struct{}

@@ -196,12 +196,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.CurrentView == models.ViewMerge || m.CurrentView == models.ViewConflictResolver {
 			return m, tea.Batch(
 				m.navigateTo(models.ViewMerge),
-				func() tea.Msg { return mergeContinueMsg{} },
+				func() tea.Msg { return MergeContinueMsg{} },
 			)
 		} else if m.CurrentView == models.ViewRebase {
 			return m, tea.Batch(
 				m.navigateTo(models.ViewRebase),
-				func() tea.Msg { return rebaseContinueMsg{} },
+				func() tea.Msg { return RebaseContinueMsg{} },
 			)
 		}
 		return m, nil
@@ -214,12 +214,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.CurrentView == models.ViewMerge {
 			return m, tea.Batch(
 				m.navigateTo(models.ViewMerge),
-				func() tea.Msg { return mergeAbortedMsg{} },
+				func() tea.Msg { return MergeAbortedMsg{} },
 			)
 		} else if m.CurrentView == models.ViewRebase {
 			return m, tea.Batch(
 				m.navigateTo(models.ViewRebase),
-				func() tea.Msg { return rebaseAbortedMsg{} },
+				func() tea.Msg { return RebaseAbortedMsg{} },
 			)
 		}
 		return m, nil

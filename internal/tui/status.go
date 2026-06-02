@@ -12,11 +12,8 @@ import (
 
 // StatusModel handles the status screen
 type StatusModel struct {
-	gitSvc git.GitService
-	styles Styles
+	BaseModel
 	status StatusResult
-	err    error
-	mode   CommandMode
 
 	// Configuration options
 	verbose          bool
@@ -39,9 +36,7 @@ type StatusResult struct {
 // NewStatusModel creates a new status model
 func NewStatusModel(gitSvc git.GitService, styles Styles) *StatusModel {
 	return &StatusModel{
-		gitSvc:           gitSvc,
-		styles:           styles,
-		mode:             ModeExecute, // Default to execute mode for backward compatibility
+		BaseModel:        NewBaseModel(gitSvc, styles),
 		verbose:          false,
 		includeUntracked: true,
 	}
@@ -56,7 +51,7 @@ func (m *StatusModel) Init() tea.Cmd {
 func (m *StatusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.mode == ModeConfigure {
+		if m.Mode == ModeConfigure {
 			switch msg.String() {
 			case "v":
 				// Toggle verbose option
@@ -82,15 +77,15 @@ func (m *StatusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case statusLoadedMsg:
-		if m.mode == ModeExecute {
+		if m.Mode == ModeExecute {
 			m.status = StatusResult(msg)
-			m.err = nil
+			m.Err = nil
 		}
 		return m, nil
 
 	case error:
-		if m.mode == ModeExecute {
-			m.err = msg
+		if m.Mode == ModeExecute {
+			m.Err = msg
 		}
 		return m, nil
 	}
@@ -100,29 +95,29 @@ func (m *StatusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the status screen
 func (m *StatusModel) View() string {
-	if m.err != nil {
-		return m.styles.Error.Render(fmt.Sprintf("Error: %v", m.err))
+	if m.Err != nil {
+		return m.Styles.Error.Render(fmt.Sprintf("Error: %v", m.Err))
 	}
 
 	var lines []string
 
 	// Title
-	if m.mode == ModeConfigure {
-		lines = append(lines, m.styles.Title.Render(" Configure Status Step "))
+	if m.Mode == ModeConfigure {
+		lines = append(lines, m.Styles.Title.Render(" Configure Status Step "))
 	} else {
-		lines = append(lines, m.styles.Title.Render(" Repository Status "))
+		lines = append(lines, m.Styles.Title.Render(" Repository Status "))
 	}
 	lines = append(lines, "")
 
-	if m.mode == ModeConfigure {
+	if m.Mode == ModeConfigure {
 		// Configuration options
-		lines = append(lines, m.styles.Help.Render("Configure status step options:"))
+		lines = append(lines, m.Styles.Help.Render("Configure status step options:"))
 		lines = append(lines, "")
 
 		// Verbose option
-		verboseStyle := m.styles.Info
+		verboseStyle := m.Styles.Info
 		if m.verbose {
-			verboseStyle = m.styles.Success
+			verboseStyle = m.Styles.Success
 		}
 		verboseText := "Verbose output: "
 		if m.verbose {
@@ -133,9 +128,9 @@ func (m *StatusModel) View() string {
 		lines = append(lines, verboseStyle.Render(verboseText))
 
 		// Include untracked option
-		untrackedStyle := m.styles.Info
+		untrackedStyle := m.Styles.Info
 		if m.includeUntracked {
-			untrackedStyle = m.styles.Success
+			untrackedStyle = m.Styles.Success
 		}
 		untrackedText := "Include untracked files: "
 		if m.includeUntracked {
@@ -147,11 +142,11 @@ func (m *StatusModel) View() string {
 		lines = append(lines, "")
 
 		// Help
-		lines = append(lines, m.styles.Help.Render("v: toggle verbose | u: toggle untracked | enter: save | esc: cancel"))
+		lines = append(lines, m.Styles.Help.Render("v: toggle verbose | u: toggle untracked | enter: save | esc: cancel"))
 	} else {
 		// Execute mode - show status information
 		// Branch info
-		branchInfo := fmt.Sprintf("🔀 Branch: %s", m.styles.Value.Render(m.status.Branch))
+		branchInfo := fmt.Sprintf("🔀 Branch: %s", m.Styles.Value.Render(m.status.Branch))
 		if m.status.Ahead > 0 {
 			branchInfo += fmt.Sprintf(" | ⬆ Ahead: %d", m.status.Ahead)
 		}
@@ -163,15 +158,15 @@ func (m *StatusModel) View() string {
 
 		// Repository state
 		if m.status.IsClean {
-			lines = append(lines, m.styles.Success.Render("✔ Working tree clean"))
+			lines = append(lines, m.Styles.Success.Render("✔ Working tree clean"))
 		} else {
-			lines = append(lines, m.styles.Warning.Render("⚡ Changes detected"))
+			lines = append(lines, m.Styles.Warning.Render("⚡ Changes detected"))
 		}
 		lines = append(lines, "")
 
 		// Modified files
 		if len(m.status.Modified) > 0 {
-			lines = append(lines, m.styles.Warning.Render(fmt.Sprintf("📝 Modified (%d):", len(m.status.Modified))))
+			lines = append(lines, m.Styles.Warning.Render(fmt.Sprintf("📝 Modified (%d):", len(m.status.Modified))))
 			for _, f := range m.status.Modified {
 				lines = append(lines, fmt.Sprintf("  • %s", f))
 			}
@@ -180,7 +175,7 @@ func (m *StatusModel) View() string {
 
 		// Added files
 		if len(m.status.Added) > 0 {
-			lines = append(lines, m.styles.Success.Render(fmt.Sprintf("✚ Staged (%d):", len(m.status.Added))))
+			lines = append(lines, m.Styles.Success.Render(fmt.Sprintf("✚ Staged (%d):", len(m.status.Added))))
 			for _, f := range m.status.Added {
 				lines = append(lines, fmt.Sprintf("  • %s", f))
 			}
@@ -189,7 +184,7 @@ func (m *StatusModel) View() string {
 
 		// Deleted files
 		if len(m.status.Deleted) > 0 {
-			lines = append(lines, m.styles.Error.Render(fmt.Sprintf("🗑 Deleted (%d):", len(m.status.Deleted))))
+			lines = append(lines, m.Styles.Error.Render(fmt.Sprintf("🗑 Deleted (%d):", len(m.status.Deleted))))
 			for _, f := range m.status.Deleted {
 				lines = append(lines, fmt.Sprintf("  • %s", f))
 			}
@@ -198,7 +193,7 @@ func (m *StatusModel) View() string {
 
 		// Untracked files
 		if len(m.status.Untracked) > 0 {
-			lines = append(lines, m.styles.Info.Render(fmt.Sprintf("❔ Untracked (%d):", len(m.status.Untracked))))
+			lines = append(lines, m.Styles.Info.Render(fmt.Sprintf("❔ Untracked (%d):", len(m.status.Untracked))))
 			for _, f := range m.status.Untracked {
 				lines = append(lines, fmt.Sprintf("  • %s", f))
 			}
@@ -207,7 +202,7 @@ func (m *StatusModel) View() string {
 
 		// Conflicts
 		if len(m.status.Conflicted) > 0 {
-			lines = append(lines, m.styles.Error.Render(fmt.Sprintf("⚠ Conflicts (%d):", len(m.status.Conflicted))))
+			lines = append(lines, m.Styles.Error.Render(fmt.Sprintf("⚠ Conflicts (%d):", len(m.status.Conflicted))))
 			for _, f := range m.status.Conflicted {
 				lines = append(lines, fmt.Sprintf("  • %s", f))
 			}
@@ -215,16 +210,16 @@ func (m *StatusModel) View() string {
 		}
 
 		// Summary
-		lines = append(lines, m.styles.Help.Render("Press 'r' to refresh | esc to go back"))
+		lines = append(lines, m.Styles.Help.Render("Press 'r' to refresh | esc to go back"))
 	}
 
-	return m.styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 // loadStatus loads the git status
 func (m *StatusModel) loadStatus() tea.Cmd {
 	return func() tea.Msg {
-		status, err := m.gitSvc.Status()
+		status, err := m.GitSvc.Status()
 		if err != nil {
 			return err
 		}
@@ -247,20 +242,17 @@ func (m *StatusModel) loadStatus() tea.Cmd {
 
 // SetMode sets the operating mode of the command model
 func (m *StatusModel) SetMode(mode CommandMode) {
-	m.mode = mode
-	if mode == ModeConfigure {
-		m.err = nil
-	}
+	m.BaseModel.SetMode(mode)
 }
 
 // GetMode returns the current operating mode
 func (m *StatusModel) GetMode() CommandMode {
-	return m.mode
+	return m.BaseModel.GetMode()
 }
 
 // GetParameters returns the collected parameters (only valid in configure mode)
 func (m *StatusModel) GetParameters() map[string]string {
-	if m.mode != ModeConfigure {
+	if m.Mode != ModeConfigure {
 		return nil
 	}
 
@@ -278,7 +270,7 @@ func (m *StatusModel) GetParameters() map[string]string {
 
 // Execute returns a command to execute the operation (only valid in execute mode)
 func (m *StatusModel) Execute() tea.Cmd {
-	if m.mode != ModeExecute {
+	if m.Mode != ModeExecute {
 		return nil
 	}
 	return m.loadStatus()

@@ -14,13 +14,10 @@ import (
 
 // CommitModel handles the commit screen
 type CommitModel struct {
-	gitSvc    git.GitService
-	styles    Styles
+	BaseModel
 	input     textinput.Model
 	status    string
-	err       error
 	committed bool
-	mode      CommandMode
 	autoAdd   bool // For configure mode
 }
 
@@ -33,11 +30,9 @@ func NewCommitModel(gitSvc git.GitService, styles Styles) *CommitModel {
 	ti.Width = 50
 
 	return &CommitModel{
-		gitSvc:  gitSvc,
-		styles:  styles,
-		input:   ti,
-		mode:    ModeExecute, // Default to execute mode for backward compatibility
-		autoAdd: true,
+		BaseModel: NewBaseModel(gitSvc, styles),
+		input:     ti,
+		autoAdd:   true,
 	}
 }
 
@@ -54,7 +49,7 @@ func (m *CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "enter":
-			if m.mode == ModeConfigure {
+			if m.Mode == ModeConfigure {
 				// In configure mode, save and return configuration
 				if m.input.Value() != "" {
 					config := models.CommandConfig{
@@ -70,35 +65,35 @@ func (m *CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "ctrl+a":
-			if m.mode == ModeExecute {
+			if m.Mode == ModeExecute {
 				return m, m.addAll()
 			}
 		case "a":
-			if m.mode == ModeConfigure {
+			if m.Mode == ModeConfigure {
 				// Toggle auto-add option
 				m.autoAdd = !m.autoAdd
 			}
 		case "esc":
-			if m.mode == ModeConfigure {
+			if m.Mode == ModeConfigure {
 				return m, func() tea.Msg { return commandCancelledMsg{} }
 			}
 		}
 
 	case commitSuccessMsg:
-		if m.mode == ModeExecute {
+		if m.Mode == ModeExecute {
 			m.committed = true
 			m.status = "✔ Changes committed successfully!"
 			m.input.SetValue("")
 		}
 
 	case commitErrorMsg:
-		if m.mode == ModeExecute {
-			m.err = msg
+		if m.Mode == ModeExecute {
+			m.Err = msg
 			m.status = fmt.Sprintf("✘ Error: %v", msg)
 		}
 
 	case addSuccessMsg:
-		if m.mode == ModeExecute {
+		if m.Mode == ModeExecute {
 			m.status = "✔ All changes staged"
 		}
 	}
@@ -112,22 +107,22 @@ func (m *CommitModel) View() string {
 	var lines []string
 
 	// Title
-	if m.mode == ModeConfigure {
-		lines = append(lines, m.styles.Title.Render(" Configure Commit Step "))
+	if m.Mode == ModeConfigure {
+		lines = append(lines, m.Styles.Title.Render(" Configure Commit Step "))
 	} else {
-		lines = append(lines, m.styles.Title.Render(" Create Commit "))
+		lines = append(lines, m.Styles.Title.Render(" Create Commit "))
 	}
 	lines = append(lines, "")
 
 	// Instructions
-	if m.mode == ModeConfigure {
-		lines = append(lines, m.styles.Help.Render("Configure commit step parameters:"))
+	if m.Mode == ModeConfigure {
+		lines = append(lines, m.Styles.Help.Render("Configure commit step parameters:"))
 		lines = append(lines, " • Enter commit message")
 		lines = append(lines, " • Press 'a' to toggle auto-add option")
 		lines = append(lines, " • Press enter to save configuration")
 		lines = append(lines, "")
 	} else if !m.committed {
-		lines = append(lines, m.styles.Help.Render("Instructions:"))
+		lines = append(lines, m.Styles.Help.Render("Instructions:"))
 		lines = append(lines, " • Type your commit message")
 		lines = append(lines, " • Press ctrl+a to stage all changes")
 		lines = append(lines, " • Press enter to commit")
@@ -135,15 +130,15 @@ func (m *CommitModel) View() string {
 	}
 
 	// Input field
-	lines = append(lines, m.styles.Info.Render("Commit message:"))
-	lines = append(lines, m.styles.Input.Render(m.input.View()))
+	lines = append(lines, m.Styles.Info.Render("Commit message:"))
+	lines = append(lines, m.Styles.Input.Render(m.input.View()))
 	lines = append(lines, "")
 
 	// Auto-add option (only in configure mode)
-	if m.mode == ModeConfigure {
-		autoAddStyle := m.styles.Info
+	if m.Mode == ModeConfigure {
+		autoAddStyle := m.Styles.Info
 		if m.autoAdd {
-			autoAddStyle = m.styles.Success
+			autoAddStyle = m.Styles.Success
 		}
 		autoAddText := "Auto-add all changes: "
 		if m.autoAdd {
@@ -157,30 +152,30 @@ func (m *CommitModel) View() string {
 
 	// Status message
 	if m.status != "" {
-		if m.err != nil {
-			lines = append(lines, m.styles.Error.Render(m.status))
+		if m.Err != nil {
+			lines = append(lines, m.Styles.Error.Render(m.status))
 		} else if strings.Contains(m.status, "✔") {
-			lines = append(lines, m.styles.Success.Render(m.status))
+			lines = append(lines, m.Styles.Success.Render(m.status))
 		} else {
-			lines = append(lines, m.styles.Info.Render(m.status))
+			lines = append(lines, m.Styles.Info.Render(m.status))
 		}
 		lines = append(lines, "")
 	}
 
 	// Help
-	if m.mode == ModeConfigure {
-		lines = append(lines, m.styles.Help.Render("a: toggle auto-add | enter: save | esc: cancel"))
+	if m.Mode == ModeConfigure {
+		lines = append(lines, m.Styles.Help.Render("a: toggle auto-add | enter: save | esc: cancel"))
 	} else {
-		lines = append(lines, m.styles.Help.Render("ctrl+a: add all | enter: commit | esc: back"))
+		lines = append(lines, m.Styles.Help.Render("ctrl+a: add all | enter: commit | esc: back"))
 	}
 
-	return m.styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 // commit executes the commit
 func (m *CommitModel) commit(message string) tea.Cmd {
 	return func() tea.Msg {
-		err := m.gitSvc.Commit(message)
+		err := m.GitSvc.Commit(message)
 		if err != nil {
 			return commitErrorMsg(err)
 		}
@@ -191,7 +186,7 @@ func (m *CommitModel) commit(message string) tea.Cmd {
 // addAll stages all changes
 func (m *CommitModel) addAll() tea.Cmd {
 	return func() tea.Msg {
-		err := m.gitSvc.AddAll()
+		err := m.GitSvc.AddAll()
 		if err != nil {
 			return commitErrorMsg(err)
 		}
@@ -203,25 +198,24 @@ func (m *CommitModel) addAll() tea.Cmd {
 
 // SetMode sets the operating mode of the command model
 func (m *CommitModel) SetMode(mode CommandMode) {
-	m.mode = mode
+	m.BaseModel.SetMode(mode)
 	if mode == ModeConfigure {
 		m.input.Placeholder = "Enter commit message..."
 		m.input.SetValue("")
 		m.committed = false
 		m.status = ""
-		m.err = nil
 		m.input.Focus()
 	}
 }
 
 // GetMode returns the current operating mode
 func (m *CommitModel) GetMode() CommandMode {
-	return m.mode
+	return m.BaseModel.GetMode()
 }
 
 // GetParameters returns the collected parameters (only valid in configure mode)
 func (m *CommitModel) GetParameters() map[string]string {
-	if m.mode != ModeConfigure {
+	if m.Mode != ModeConfigure {
 		return nil
 	}
 
@@ -236,7 +230,7 @@ func (m *CommitModel) GetParameters() map[string]string {
 
 // Execute returns a command to execute the operation (only valid in execute mode)
 func (m *CommitModel) Execute() tea.Cmd {
-	if m.mode != ModeExecute {
+	if m.Mode != ModeExecute {
 		return nil
 	}
 	return m.commit(m.input.Value())
