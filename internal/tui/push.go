@@ -198,7 +198,15 @@ func (m *PushModel) executePush() tea.Cmd {
 			return pushErrorMsg(err)
 		}
 
-		err = m.GitSvc.Push("origin", branch)
+		remote := m.remote
+		if remote == "" {
+			remote = "origin"
+		}
+		if m.branch != "" {
+			branch = m.branch
+		}
+
+		err = m.GitSvc.PushOptions(remote, branch, m.force)
 		if err != nil {
 			return pushErrorMsg(err)
 		}
@@ -243,6 +251,17 @@ func (m *PushModel) GetParameters() map[string]string {
 }
 
 // Execute returns a command to execute the operation (only valid in execute mode)
+func (m *PushModel) SetParameters(params map[string]string) {
+	if params == nil {
+		return
+	}
+	if remote := params["remote"]; remote != "" {
+		m.remote = remote
+	}
+	m.force = params["force"] == "true"
+	m.branch = params["branch"]
+}
+
 func (m *PushModel) Execute() tea.Cmd {
 	if m.Mode != ModeExecute {
 		return nil

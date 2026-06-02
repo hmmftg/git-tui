@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -268,5 +269,49 @@ func TestEngine_executeStep(t *testing.T) {
 				t.Errorf("Expected no error but got: %v", err)
 			}
 		})
+	}
+}
+
+func TestEngine_ExecuteStep_TUIProducedMergeRebaseParameters(t *testing.T) {
+	mock := git.NewMockGitService()
+	engine := NewEngine(mock, models.StopOnError)
+
+	if err := engine.ExecuteStep(models.WorkflowStep{Type: models.StepMerge, Parameters: map[string]string{"target": "develop"}}); err != nil {
+		t.Fatalf("expected TUI-produced merge config to execute, got %v", err)
+	}
+	if err := engine.ExecuteStep(models.WorkflowStep{Type: models.StepRebase, Parameters: map[string]string{"target": "main"}}); err != nil {
+		t.Fatalf("expected TUI-produced rebase config to execute, got %v", err)
+	}
+}
+
+func TestEngine_ExecuteStep_PushPullOptions(t *testing.T) {
+	mock := git.NewMockGitService()
+	engine := NewEngine(mock, models.StopOnError)
+
+	if err := engine.ExecuteStep(models.WorkflowStep{Type: models.StepPush, Parameters: map[string]string{
+		"remote": "upstream",
+		"branch": "feature/test",
+		"force":  "true",
+	}}); err != nil {
+		t.Fatalf("expected push options to execute, got %v", err)
+	}
+
+	if err := engine.ExecuteStep(models.WorkflowStep{Type: models.StepPull, Parameters: map[string]string{
+		"remote": "origin",
+		"branch": "develop",
+		"rebase": "true",
+	}}); err != nil {
+		t.Fatalf("expected pull options to execute, got %v", err)
+	}
+
+	commands := ""
+	for _, command := range mock.Commands {
+		commands += command + "\n"
+	}
+	if !strings.Contains(commands, "push --force upstream feature/test") {
+		t.Fatalf("expected force push command, got:\n%s", commands)
+	}
+	if !strings.Contains(commands, "pull --rebase origin develop") {
+		t.Fatalf("expected rebase pull command, got:\n%s", commands)
 	}
 }

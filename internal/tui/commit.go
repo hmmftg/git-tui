@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,30 +16,83 @@ import (
 // CommitModel handles the commit screen
 type CommitModel struct {
 	BaseModel
-	input     textinput.Model
-	status    string
-	committed bool
-	autoAdd   bool // For configure mode
+	subjectInput textinput.Model
+	bodyInput    textarea.Model
+	focusIndex   int // 0=subject, 1=body
+	status       string
+	committed    bool
+	autoAdd      bool // For configure mode
+	width        int
 }
 
 // NewCommitModel creates a new commit model
 func NewCommitModel(gitSvc git.GitService, styles Styles) *CommitModel {
-	ti := textinput.New()
-	ti.Placeholder = "Enter commit message..."
-	ti.Focus()
-	ti.CharLimit = 100
-	ti.Width = 50
+	subject := textinput.New()
+	subject.Placeholder = "Enter commit subject..."
+	subject.Focus()
+	subject.Width = 50
+
+	body := textarea.New()
+	body.Placeholder = "Optional commit body..."
+	body.SetWidth(50)
+	body.SetHeight(5)
+	body.Blur()
 
 	return &CommitModel{
-		BaseModel: NewBaseModel(gitSvc, styles),
-		input:     ti,
-		autoAdd:   true,
+		BaseModel:    NewBaseModel(gitSvc, styles),
+		subjectInput: subject,
+		bodyInput:    body,
+		focusIndex:   0,
+		autoAdd:      true,
+		width:        70,
 	}
 }
 
 // Init initializes the model
 func (m *CommitModel) Init() tea.Cmd {
 	return textinput.Blink
+}
+
+// SetSize updates input widths for the available content area.
+func (m *CommitModel) SetSize(width, _ int) {
+	if width <= 0 {
+		return
+	}
+	m.width = width
+	inputWidth := width - 12
+	if inputWidth < 20 {
+		inputWidth = 20
+	}
+	m.subjectInput.Width = inputWidth
+	m.bodyInput.SetWidth(inputWidth)
+}
+
+// IsInputFocused reports whether one of the commit form inputs is focused.
+func (m *CommitModel) IsInputFocused() bool {
+	return m.subjectInput.Focused() || m.bodyInput.Focused()
+}
+
+func (m *CommitModel) setFocus(index int) tea.Cmd {
+	m.focusIndex = index
+	if index == 0 {
+		m.bodyInput.Blur()
+		return m.subjectInput.Focus()
+	}
+	m.subjectInput.Blur()
+	m.bodyInput.Focus()
+	return textarea.Blink
+}
+
+func (m *CommitModel) commitMessage() string {
+	subject := strings.TrimSpace(m.subjectInput.Value())
+	body := strings.TrimSpace(m.bodyInput.Value())
+	if body == "" {
+		return subject
+	}
+	if subject == "" {
+		return body
+	}
+	return subject + "\n\n" + body
 }
 
 // Update handles messages
@@ -48,34 +102,43 @@ func (m *CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "enter":
+		case "esc":
 			if m.Mode == ModeConfigure {
-				// In configure mode, save and return configuration
-				if m.input.Value() != "" {
-					config := models.CommandConfig{
-						StepType:   models.StepCommit,
-						Parameters: m.GetParameters(),
-					}
+				return m, func() tea.Msg { return commandCancelledMsg{} }
+			}
+			return m, func() tea.Msg { return viewChangeMsg(models.ViewHome) }
+		case "tab":
+			if m.focusIndex == 0 {
+				return m, m.setFocus(1)
+			}
+			return m, m.setFocus(0)
+		case "shift+tab":
+			if m.focusIndex == 1 {
+				return m, m.setFocus(0)
+			}
+			return m, m.setFocus(1)
+		case "enter":
+			if m.focusIndex == 0 {
+				return m, m.setFocus(1)
+			}
+		case "ctrl+s", "ctrl+enter":
+			message := m.commitMessage()
+			if m.Mode == ModeConfigure {
+				if message != "" {
+					config := models.CommandConfig{StepType: models.StepCommit, Parameters: m.GetParameters()}
 					return m, func() tea.Msg { return commandConfiguredMsg{Config: config} }
 				}
-			} else {
-				// In execute mode, commit the changes
-				if m.input.Value() != "" && !m.committed {
-					return m, m.commit(m.input.Value())
-				}
+			} else if message != "" && !m.committed {
+				return m, m.commit(message)
 			}
 		case "ctrl+a":
 			if m.Mode == ModeExecute {
 				return m, m.addAll()
 			}
-		case "a":
+		case "ctrl+t":
 			if m.Mode == ModeConfigure {
-				// Toggle auto-add option
 				m.autoAdd = !m.autoAdd
-			}
-		case "esc":
-			if m.Mode == ModeConfigure {
-				return m, func() tea.Msg { return commandCancelledMsg{} }
+				return m, nil
 			}
 		}
 
@@ -83,7 +146,8 @@ func (m *CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Mode == ModeExecute {
 			m.committed = true
 			m.status = "✔ Changes committed successfully!"
-			m.input.SetValue("")
+			m.subjectInput.SetValue("")
+			m.bodyInput.SetValue("")
 		}
 
 	case commitErrorMsg:
@@ -98,7 +162,11 @@ func (m *CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	m.input, cmd = m.input.Update(msg)
+	if m.focusIndex == 0 {
+		m.subjectInput, cmd = m.subjectInput.Update(msg)
+	} else {
+		m.bodyInput, cmd = m.bodyInput.Update(msg)
+	}
 	return m, cmd
 }
 
@@ -106,7 +174,6 @@ func (m *CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *CommitModel) View() string {
 	var lines []string
 
-	// Title
 	if m.Mode == ModeConfigure {
 		lines = append(lines, m.Styles.Title.Render(" Configure Commit Step "))
 	} else {
@@ -114,27 +181,33 @@ func (m *CommitModel) View() string {
 	}
 	lines = append(lines, "")
 
-	// Instructions
 	if m.Mode == ModeConfigure {
 		lines = append(lines, m.Styles.Help.Render("Configure commit step parameters:"))
-		lines = append(lines, " • Enter commit message")
-		lines = append(lines, " • Press 'a' to toggle auto-add option")
-		lines = append(lines, " • Press enter to save configuration")
+		lines = append(lines, " • Enter commit subject and optional body")
+		lines = append(lines, " • Press ctrl+t to toggle auto-add option")
+		lines = append(lines, " • Press ctrl+s or ctrl+enter to save configuration")
 		lines = append(lines, "")
 	} else if !m.committed {
 		lines = append(lines, m.Styles.Help.Render("Instructions:"))
-		lines = append(lines, " • Type your commit message")
+		lines = append(lines, " • Type your commit subject and optional body")
 		lines = append(lines, " • Press ctrl+a to stage all changes")
-		lines = append(lines, " • Press enter to commit")
+		lines = append(lines, " • Press ctrl+s or ctrl+enter to commit")
 		lines = append(lines, "")
 	}
 
-	// Input field
-	lines = append(lines, m.Styles.Info.Render("Commit message:"))
-	lines = append(lines, m.Styles.Input.Render(m.input.View()))
+	lines = append(lines, m.Styles.Info.Render("Commit subject:"))
+	lines = append(lines, m.Styles.Input.Render(m.subjectInput.View()))
+	if subjectLen := len(m.subjectInput.Value()); subjectLen > 72 {
+		lines = append(lines, m.Styles.Warning.Render(fmt.Sprintf("Subject is %d characters; 72 or fewer is recommended", subjectLen)))
+	} else if subjectLen > 50 {
+		lines = append(lines, m.Styles.Help.Render(fmt.Sprintf("Subject is %d characters; 50 or fewer is ideal", subjectLen)))
+	}
 	lines = append(lines, "")
 
-	// Auto-add option (only in configure mode)
+	lines = append(lines, m.Styles.Info.Render("Commit body:"))
+	lines = append(lines, m.Styles.Input.Render(m.bodyInput.View()))
+	lines = append(lines, "")
+
 	if m.Mode == ModeConfigure {
 		autoAddStyle := m.Styles.Info
 		if m.autoAdd {
@@ -150,7 +223,6 @@ func (m *CommitModel) View() string {
 		lines = append(lines, "")
 	}
 
-	// Status message
 	if m.status != "" {
 		if m.Err != nil {
 			lines = append(lines, m.Styles.Error.Render(m.status))
@@ -162,11 +234,10 @@ func (m *CommitModel) View() string {
 		lines = append(lines, "")
 	}
 
-	// Help
 	if m.Mode == ModeConfigure {
-		lines = append(lines, m.Styles.Help.Render("a: toggle auto-add | enter: save | esc: cancel"))
+		lines = append(lines, m.Styles.Help.Render("tab: switch field | ctrl+t: toggle auto-add | ctrl+s/ctrl+enter: save | esc: cancel"))
 	} else {
-		lines = append(lines, m.Styles.Help.Render("ctrl+a: add all | enter: commit | esc: back"))
+		lines = append(lines, m.Styles.Help.Render("tab: switch field | ctrl+a: add all | ctrl+s/ctrl+enter: commit | esc: back"))
 	}
 
 	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
@@ -195,32 +266,26 @@ func (m *CommitModel) addAll() tea.Cmd {
 }
 
 // CommandModel interface implementation
-
-// SetMode sets the operating mode of the command model
 func (m *CommitModel) SetMode(mode CommandMode) {
 	m.BaseModel.SetMode(mode)
 	if mode == ModeConfigure {
-		m.input.Placeholder = "Enter commit message..."
-		m.input.SetValue("")
+		m.subjectInput.Placeholder = "Enter commit subject..."
+		m.subjectInput.SetValue("")
+		m.bodyInput.SetValue("")
 		m.committed = false
 		m.status = ""
-		m.input.Focus()
+		m.setFocus(0)
 	}
 }
 
-// GetMode returns the current operating mode
-func (m *CommitModel) GetMode() CommandMode {
-	return m.BaseModel.GetMode()
-}
+func (m *CommitModel) GetMode() CommandMode { return m.BaseModel.GetMode() }
 
-// GetParameters returns the collected parameters (only valid in configure mode)
 func (m *CommitModel) GetParameters() map[string]string {
 	if m.Mode != ModeConfigure {
 		return nil
 	}
-
 	params := make(map[string]string)
-	params["message"] = m.input.Value()
+	params["message"] = m.commitMessage()
 	params["autoAdd"] = "false"
 	if m.autoAdd {
 		params["autoAdd"] = "true"
@@ -228,18 +293,29 @@ func (m *CommitModel) GetParameters() map[string]string {
 	return params
 }
 
-// Execute returns a command to execute the operation (only valid in execute mode)
+func (m *CommitModel) SetParameters(params map[string]string) {
+	if params == nil {
+		return
+	}
+	message := params["message"]
+	if parts := strings.SplitN(message, "\n\n", 2); len(parts) == 2 {
+		m.subjectInput.SetValue(parts[0])
+		m.bodyInput.SetValue(parts[1])
+	} else {
+		m.subjectInput.SetValue(message)
+		m.bodyInput.SetValue("")
+	}
+	m.autoAdd = params["autoAdd"] == "true"
+}
+
 func (m *CommitModel) Execute() tea.Cmd {
 	if m.Mode != ModeExecute {
 		return nil
 	}
-	return m.commit(m.input.Value())
+	return m.commit(m.commitMessage())
 }
 
-// GetStepType returns the step type this command model represents
-func (m *CommitModel) GetStepType() models.StepType {
-	return models.StepCommit
-}
+func (m *CommitModel) GetStepType() models.StepType { return models.StepCommit }
 
 type commitSuccessMsg struct{}
 type commitErrorMsg error

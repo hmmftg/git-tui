@@ -23,7 +23,9 @@ type GitService interface {
 	Status() (models.Status, error)
 	Commit(message string) error
 	Push(remote, branch string) error
+	PushOptions(remote, branch string, force bool) error
 	Pull() error
+	PullOptions(remote string, rebase bool, branch string) error
 	Checkout(branch string) error
 	Merge(branch string) error
 	Rebase(branch string) error
@@ -185,7 +187,15 @@ func (s *service) Commit(message string) error {
 
 // Push pushes changes to remote
 func (s *service) Push(remote, branch string) error {
+	return s.PushOptions(remote, branch, false)
+}
+
+// PushOptions pushes changes to remote with optional force.
+func (s *service) PushOptions(remote, branch string, force bool) error {
 	args := []string{"push"}
+	if force {
+		args = append(args, "--force")
+	}
 	if remote != "" {
 		args = append(args, remote)
 		if branch != "" {
@@ -198,7 +208,22 @@ func (s *service) Push(remote, branch string) error {
 
 // Pull pulls changes from remote
 func (s *service) Pull() error {
-	_, err := s.exec("pull")
+	return s.PullOptions("", false, "")
+}
+
+// PullOptions pulls changes with optional remote, rebase, and branch arguments.
+func (s *service) PullOptions(remote string, rebase bool, branch string) error {
+	args := []string{"pull"}
+	if rebase {
+		args = append(args, "--rebase")
+	}
+	if remote != "" {
+		args = append(args, remote)
+		if branch != "" {
+			args = append(args, branch)
+		}
+	}
+	_, err := s.exec(args...)
 	return err
 }
 

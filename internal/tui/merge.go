@@ -107,6 +107,14 @@ func (m *MergeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case branchesLoadedMsg:
 		m.branches = []string(msg)
 		m.Err = nil
+		if m.targetBranch != "" {
+			for i, branch := range m.branches {
+				if branch == m.targetBranch {
+					m.cursor = i
+					break
+				}
+			}
+		}
 		return m, nil
 
 	case MergeSuccessMsg:
@@ -352,7 +360,7 @@ func (m *MergeModel) GetParameters() map[string]string {
 
 	params := make(map[string]string)
 	if m.cursor >= 0 && m.cursor < len(m.branches) {
-		params["targetBranch"] = m.branches[m.cursor]
+		params["target"] = m.branches[m.cursor]
 	}
 	params["noCommit"] = "false"
 	if m.noCommit {
@@ -366,6 +374,24 @@ func (m *MergeModel) GetParameters() map[string]string {
 }
 
 // Execute returns a command to execute the operation (only valid in execute mode)
+func (m *MergeModel) SetParameters(params map[string]string) {
+	if params == nil {
+		return
+	}
+	m.targetBranch = params["target"]
+	if m.targetBranch == "" {
+		m.targetBranch = params["targetBranch"]
+	}
+	m.noCommit = params["noCommit"] == "true"
+	m.squash = params["squash"] == "true"
+	for i, branch := range m.branches {
+		if branch == m.targetBranch {
+			m.cursor = i
+			break
+		}
+	}
+}
+
 func (m *MergeModel) Execute() tea.Cmd {
 	if m.Mode != ModeExecute {
 		return nil

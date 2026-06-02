@@ -269,6 +269,16 @@ func (m *StatusModel) GetParameters() map[string]string {
 }
 
 // Execute returns a command to execute the operation (only valid in execute mode)
+func (m *StatusModel) SetParameters(params map[string]string) {
+	if params == nil {
+		return
+	}
+	m.verbose = params["verbose"] == "true"
+	if includeUntracked, ok := params["includeUntracked"]; ok {
+		m.includeUntracked = includeUntracked == "true"
+	}
+}
+
 func (m *StatusModel) Execute() tea.Cmd {
 	if m.Mode != ModeExecute {
 		return nil

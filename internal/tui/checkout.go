@@ -70,6 +70,14 @@ func (m *CheckoutModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case branchesLoadedMsg:
 		m.branches = []string(msg)
 		m.Err = nil
+		if m.selected != "" {
+			for i, b := range m.branches {
+				if b == m.selected {
+					m.cursor = i
+					return m, nil
+				}
+			}
+		}
 		// Find current position
 		current, _ := m.GitSvc.CurrentBranch()
 		for i, b := range m.branches {
@@ -205,6 +213,19 @@ func (m *CheckoutModel) GetParameters() map[string]string {
 }
 
 // Execute returns a command to execute the operation (only valid in execute mode)
+func (m *CheckoutModel) SetParameters(params map[string]string) {
+	if params == nil {
+		return
+	}
+	m.selected = params["branch"]
+	for i, branch := range m.branches {
+		if branch == m.selected {
+			m.cursor = i
+			break
+		}
+	}
+}
+
 func (m *CheckoutModel) Execute() tea.Cmd {
 	if m.Mode != ModeExecute {
 		return nil
