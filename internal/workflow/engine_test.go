@@ -315,3 +315,24 @@ func TestEngine_ExecuteStep_PushPullOptions(t *testing.T) {
 		t.Fatalf("expected rebase pull command, got:\n%s", commands)
 	}
 }
+
+func TestEngine_ExecuteStep_CreateCheckoutBranchFromBase(t *testing.T) {
+	mock := git.NewMockGitService()
+	engine := NewEngine(mock, models.StopOnError)
+
+	if err := engine.ExecuteStep(models.WorkflowStep{Type: models.StepCheckout, Parameters: map[string]string{
+		"create": "true",
+		"branch": "feature/new",
+		"base":   "develop",
+	}}); err != nil {
+		t.Fatalf("expected create checkout step to execute, got %v", err)
+	}
+
+	commands := ""
+	for _, command := range mock.Commands {
+		commands += command + "\n"
+	}
+	if !strings.Contains(commands, "checkout -b feature/new develop") {
+		t.Fatalf("expected checkout -b command, got:\n%s", commands)
+	}
+}

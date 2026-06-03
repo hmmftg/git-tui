@@ -27,6 +27,7 @@ type GitService interface {
 	Pull() error
 	PullOptions(remote string, rebase bool, branch string) error
 	Checkout(branch string) error
+	CreateBranch(branch, base string) error
 	Merge(branch string) error
 	Rebase(branch string) error
 	CurrentBranch() (string, error)
@@ -230,6 +231,16 @@ func (s *service) PullOptions(remote string, rebase bool, branch string) error {
 // Checkout switches to the given branch
 func (s *service) Checkout(branch string) error {
 	_, err := s.exec("checkout", branch)
+	return err
+}
+
+// CreateBranch creates and checks out a new branch, optionally from a base branch.
+func (s *service) CreateBranch(branch, base string) error {
+	args := []string{"checkout", "-b", branch}
+	if base != "" {
+		args = append(args, base)
+	}
+	_, err := s.exec(args...)
 	return err
 }
 

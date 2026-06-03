@@ -254,6 +254,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.commitModel.Init()
 		case models.ViewCheckout:
 			m.checkoutModel = NewCheckoutModel(m.GitService, m.Styles)
+			m.updateChildSizes()
 			return m, m.checkoutModel.Init()
 		case models.ViewPush:
 			m.pushModel = NewPushModel(m.GitService, m.Styles)
@@ -547,6 +548,9 @@ func (m *AppModel) updateChildSizes() {
 	if m.workflowEditorModel != nil {
 		m.workflowEditorModel.SetSize(contentWidth, contentHeight)
 	}
+	if m.checkoutModel != nil {
+		m.checkoutModel.SetSize(contentWidth, contentHeight)
+	}
 }
 
 // isInputFocused checks if any text input is currently focused in the current view
@@ -559,6 +563,10 @@ func (m *AppModel) isInputFocused() bool {
 	case models.ViewCommit:
 		if m.commitModel != nil {
 			return m.commitModel.IsInputFocused()
+		}
+	case models.ViewCheckout:
+		if m.checkoutModel != nil {
+			return m.checkoutModel.IsInputFocused()
 		}
 	}
 	return false

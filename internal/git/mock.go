@@ -114,6 +114,28 @@ func (m *MockGitService) Checkout(branch string) error {
 	return nil
 }
 
+func (m *MockGitService) CreateBranch(branch, base string) error {
+	args := []string{"checkout", "-b", branch}
+	if base != "" {
+		args = append(args, base)
+	}
+	m.record(args...)
+	if m.ShouldFail["create-branch"] {
+		return errors.New("create branch failed")
+	}
+	for _, existing := range m.Branches {
+		if existing == branch {
+			m.CurrentBranchVal = branch
+			m.StatusVal.Branch = branch
+			return nil
+		}
+	}
+	m.Branches = append(m.Branches, branch)
+	m.CurrentBranchVal = branch
+	m.StatusVal.Branch = branch
+	return nil
+}
+
 func (m *MockGitService) Merge(branch string) error {
 	m.record("merge", branch)
 	if m.ShouldFail["merge"] {

@@ -138,6 +138,9 @@ func (e *Engine) ExecuteStep(step models.WorkflowStep) error {
 		if branch == "" {
 			return errors.New("checkout step requires a branch parameter")
 		}
+		if step.Parameters["create"] == "true" {
+			return e.gitSvc.CreateBranch(branch, step.Parameters["base"])
+		}
 		return e.gitSvc.Checkout(branch)
 
 	case models.StepMerge:
