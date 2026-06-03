@@ -69,18 +69,25 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
+		m.updateChildSizes()
 		return m, nil
 
 	case tea.KeyMsg:
-		// Check if any input is focused before handling global keys
-		if m.isInputFocused() {
-			// Let the current view handle the key without global interception
+		inputFocused := m.isInputFocused()
+
+		// Ctrl+C is always global so users can reliably exit focused inputs.
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+
+		// Let focused inputs and form models consume their local editing keys.
+		if inputFocused {
 			break
 		}
 
 		// Global navigation keys (only when no input is focused)
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "q":
 			if m.CurrentView == models.ViewHome {
 				return m, tea.Quit
 			}
@@ -153,6 +160,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			wf = &copy
 		}
 		m.workflowEditorModel = NewWorkflowEditor(m.GitService, m.ConfigMgr, m.Styles, wf, wf != nil)
+		m.updateChildSizes()
 		return m, tea.Batch(
 			m.navigateTo(models.ViewWorkflowEditor),
 			m.workflowEditorModel.Init(),
@@ -162,6 +170,7 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Open workflow editor for existing workflow
 		wf := models.Workflow(msg)
 		m.workflowEditorModel = NewWorkflowEditor(m.GitService, m.ConfigMgr, m.Styles, &wf, false)
+		m.updateChildSizes()
 		return m, tea.Batch(
 			m.navigateTo(models.ViewWorkflowEditor),
 			m.workflowEditorModel.Init(),
@@ -241,9 +250,11 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.statusModel.Init()
 		case models.ViewCommit:
 			m.commitModel = NewCommitModel(m.GitService, m.Styles)
+			m.updateChildSizes()
 			return m, m.commitModel.Init()
 		case models.ViewCheckout:
 			m.checkoutModel = NewCheckoutModel(m.GitService, m.Styles)
+			m.updateChildSizes()
 			return m, m.checkoutModel.Init()
 		case models.ViewPush:
 			m.pushModel = NewPushModel(m.GitService, m.Styles)
@@ -432,8 +443,11 @@ func (m *AppModel) renderHeader() string {
 		repoInfo = fmt.Sprintf("📁 %s | 🔀 %s", m.Repository.Path, m.Repository.Status.Branch)
 	}
 
-	header := m.Styles.Header.Render(fmt.Sprintf(" GitFlow TUI | %s ", repoInfo))
-	return header
+	headerStyle := m.Styles.Header
+	if m.Width > 0 {
+		headerStyle = headerStyle.Width(m.Width)
+	}
+	return headerStyle.Render(fmt.Sprintf(" GitFlow TUI | %s ", repoInfo))
 }
 
 // renderFooter renders the application footer
@@ -452,7 +466,11 @@ func (m *AppModel) renderFooter() string {
 		help = fmt.Sprintf("%s | %s", msgStyle.Render(m.Message), help)
 	}
 
-	return m.Styles.Footer.Render(help)
+	footerStyle := m.Styles.Footer
+	if m.Width > 0 {
+		footerStyle = footerStyle.Width(m.Width)
+	}
+	return footerStyle.Render(help)
 }
 
 // renderHome renders the home view
@@ -521,6 +539,20 @@ func (m *AppModel) refreshRepoInfo() tea.Cmd {
 	}
 }
 
+func (m *AppModel) updateChildSizes() {
+	contentWidth := m.Width - 6
+	contentHeight := m.Height - lipgloss.Height(m.renderHeader()) - lipgloss.Height(m.renderFooter())
+	if m.commitModel != nil {
+		m.commitModel.SetSize(contentWidth, contentHeight)
+	}
+	if m.workflowEditorModel != nil {
+		m.workflowEditorModel.SetSize(contentWidth, contentHeight)
+	}
+	if m.checkoutModel != nil {
+		m.checkoutModel.SetSize(contentWidth, contentHeight)
+	}
+}
+
 // isInputFocused checks if any text input is currently focused in the current view
 func (m *AppModel) isInputFocused() bool {
 	switch m.CurrentView {
@@ -530,7 +562,11 @@ func (m *AppModel) isInputFocused() bool {
 		}
 	case models.ViewCommit:
 		if m.commitModel != nil {
-			return m.commitModel.input.Focused()
+			return m.commitModel.IsInputFocused()
+		}
+	case models.ViewCheckout:
+		if m.checkoutModel != nil {
+			return m.checkoutModel.IsInputFocused()
 		}
 	}
 	return false

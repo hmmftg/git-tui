@@ -195,7 +195,7 @@ func (m *PullModel) View() string {
 // executePull runs the pull command
 func (m *PullModel) executePull() tea.Cmd {
 	return func() tea.Msg {
-		err := m.GitSvc.Pull()
+		err := m.GitSvc.PullOptions(m.remote, m.rebase, m.branch)
 		if err != nil {
 			return pullErrorMsg(err)
 		}
@@ -239,6 +239,17 @@ func (m *PullModel) GetParameters() map[string]string {
 }
 
 // Execute returns a command to execute the operation (only valid in execute mode)
+func (m *PullModel) SetParameters(params map[string]string) {
+	if params == nil {
+		return
+	}
+	if remote := params["remote"]; remote != "" {
+		m.remote = remote
+	}
+	m.rebase = params["rebase"] == "true"
+	m.branch = params["branch"]
+}
+
 func (m *PullModel) Execute() tea.Cmd {
 	if m.Mode != ModeExecute {
 		return nil

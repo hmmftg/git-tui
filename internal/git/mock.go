@@ -61,7 +61,21 @@ func (m *MockGitService) Commit(message string) error {
 }
 
 func (m *MockGitService) Push(remote, branch string) error {
-	m.record("push", remote, branch)
+	return m.PushOptions(remote, branch, false)
+}
+
+func (m *MockGitService) PushOptions(remote, branch string, force bool) error {
+	args := []string{"push"}
+	if force {
+		args = append(args, "--force")
+	}
+	if remote != "" {
+		args = append(args, remote)
+		if branch != "" {
+			args = append(args, branch)
+		}
+	}
+	m.record(args...)
 	if m.ShouldFail["push"] {
 		return errors.New("push failed")
 	}
@@ -69,7 +83,21 @@ func (m *MockGitService) Push(remote, branch string) error {
 }
 
 func (m *MockGitService) Pull() error {
-	m.record("pull")
+	return m.PullOptions("", false, "")
+}
+
+func (m *MockGitService) PullOptions(remote string, rebase bool, branch string) error {
+	args := []string{"pull"}
+	if rebase {
+		args = append(args, "--rebase")
+	}
+	if remote != "" {
+		args = append(args, remote)
+		if branch != "" {
+			args = append(args, branch)
+		}
+	}
+	m.record(args...)
 	if m.ShouldFail["pull"] {
 		return errors.New("pull failed")
 	}
@@ -81,6 +109,28 @@ func (m *MockGitService) Checkout(branch string) error {
 	if m.ShouldFail["checkout"] {
 		return errors.New("checkout failed")
 	}
+	m.CurrentBranchVal = branch
+	m.StatusVal.Branch = branch
+	return nil
+}
+
+func (m *MockGitService) CreateBranch(branch, base string) error {
+	args := []string{"checkout", "-b", branch}
+	if base != "" {
+		args = append(args, base)
+	}
+	m.record(args...)
+	if m.ShouldFail["create-branch"] {
+		return errors.New("create branch failed")
+	}
+	for _, existing := range m.Branches {
+		if existing == branch {
+			m.CurrentBranchVal = branch
+			m.StatusVal.Branch = branch
+			return nil
+		}
+	}
+	m.Branches = append(m.Branches, branch)
 	m.CurrentBranchVal = branch
 	m.StatusVal.Branch = branch
 	return nil
