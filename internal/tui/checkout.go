@@ -104,6 +104,10 @@ func (m *CheckoutModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.Mode == ModeExecute {
 				return m, m.loadBranches()
 			}
+		case "p":
+			if m.Mode == ModeExecute {
+				return m, NavigateCmd(models.ViewPull)
+			}
 		case "esc":
 			if m.Mode == ModeConfigure {
 				return m, func() tea.Msg { return commandCancelledMsg{} }
@@ -261,7 +265,7 @@ func (m *CheckoutModel) View() string {
 	if m.Mode == ModeConfigure {
 		lines = append(lines, m.Styles.Help.Render("↑/↓: navigate | n: new from selected | enter: save checkout | esc: cancel"))
 	} else {
-		lines = append(lines, m.Styles.Help.Render("↑/↓: navigate | enter: checkout | n: new from selected | r: refresh | esc: back"))
+		lines = append(lines, m.Styles.Help.Render("↑/↓: navigate | enter: checkout | n: new from selected | p: pull | r: refresh | esc: back"))
 	}
 
 	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))

@@ -140,12 +140,16 @@ func (m *CommitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.autoAdd = !m.autoAdd
 				return m, nil
 			}
+		case "ctrl+p":
+			if m.Mode == ModeExecute {
+				return m, NavigateCmd(models.ViewPush)
+			}
 		}
 
 	case commitSuccessMsg:
 		if m.Mode == ModeExecute {
 			m.committed = true
-			m.status = "✔ Changes committed successfully!"
+			m.status = "✔ Changes committed successfully! Press Ctrl+P to push."
 			m.subjectInput.SetValue("")
 			m.bodyInput.SetValue("")
 		}
@@ -237,7 +241,7 @@ func (m *CommitModel) View() string {
 	if m.Mode == ModeConfigure {
 		lines = append(lines, m.Styles.Help.Render("tab: switch field | ctrl+t: toggle auto-add | ctrl+s/ctrl+enter: save | esc: cancel"))
 	} else {
-		lines = append(lines, m.Styles.Help.Render("tab: switch field | ctrl+a: add all | ctrl+s/ctrl+enter: commit | esc: back"))
+		lines = append(lines, m.Styles.Help.Render("tab: switch field | ctrl+a: add all | ctrl+s/ctrl+enter: commit | ctrl+p: push | esc: back"))
 	}
 
 	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))

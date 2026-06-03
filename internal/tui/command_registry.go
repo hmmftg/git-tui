@@ -50,6 +50,10 @@ func (r *CommandRegistry) CreateCommandModel(stepType models.StepType, mode Comm
 		model := NewRebaseModel(r.gitSvc, r.styles)
 		model.SetMode(mode)
 		return model
+	case models.StepNewBranch:
+		model := NewNewBranchModel(r.gitSvc, r.styles)
+		model.SetMode(mode)
+		return model
 	default:
 		return nil
 	}
@@ -65,6 +69,7 @@ func (r *CommandRegistry) GetAvailableStepTypes() []models.StepType {
 		models.StepPull,
 		models.StepMerge,
 		models.StepRebase,
+		models.StepNewBranch,
 	}
 }
 

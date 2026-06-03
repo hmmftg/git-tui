@@ -18,6 +18,7 @@ type RebaseModel struct {
 	cursor       int
 	success      bool
 	targetBranch string
+	running      bool
 
 	// Configuration options
 	interactive bool
@@ -101,6 +102,10 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.HasConflict() {
 					return m, func() tea.Msg { return OpenConflictResolverMsg{} }
 				}
+			case "p":
+				if !m.running && !m.HasConflict() {
+					return m, NavigateCmd(models.ViewPush)
+				}
 			}
 		}
 
@@ -118,6 +123,7 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case RebaseSuccessMsg:
+		m.running = false
 		// Check for conflicts after rebase
 		if m.GitSvc.HasConflicts() {
 			m.SetConflict(string(msg))
@@ -130,6 +136,7 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case RebaseContinueMsg:
+		m.running = false
 		// Check if conflicts are resolved
 		if m.GitSvc.HasConflicts() {
 			m.Message = m.GetStillConflictMessage()
@@ -141,11 +148,13 @@ func (m *RebaseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case RebaseAbortedMsg:
+		m.running = false
 		m.Reset()
 		m.SetSuccess("Rebase aborted")
 		return m, nil
 
 	case error:
+		m.running = false
 		if m.GitSvc.HasConflicts() {
 			m.SetConflict(m.targetBranch)
 			m.Message = m.GetConflictErrorMessage(msg)
@@ -277,7 +286,13 @@ func (m *RebaseModel) View() string {
 	}
 
 	// Help
-	help := m.ConflictHandler.GetHelpText("↑/↓: navigate | enter: rebase | R: refresh | esc: back")
+	var help string
+	if m.success && !m.HasConflict() {
+		help = "esc: back | p: push"
+	} else {
+		help = "↑/↓: navigate | enter: rebase | R: refresh | esc: back"
+	}
+	help = m.ConflictHandler.GetHelpText(help)
 	lines = append(lines, m.Styles.Help.Render(help))
 
 	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
@@ -297,6 +312,7 @@ func (m *RebaseModel) loadBranches() tea.Cmd {
 // rebase rebases onto the selected branch
 func (m *RebaseModel) rebase(branch string) tea.Cmd {
 	m.targetBranch = branch
+	m.running = true
 	return func() tea.Msg {
 		err := m.GitSvc.Rebase(branch)
 		if err != nil {
@@ -341,6 +357,7 @@ func (m *RebaseModel) SetMode(mode CommandMode) {
 	m.BaseModel.SetMode(mode)
 	if mode == ModeConfigure {
 		m.ConflictHandler.Reset()
+		m.running = false
 	}
 }
 

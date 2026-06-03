@@ -21,6 +21,7 @@ const (
 	ViewPull
 	ViewPush
 	ViewConflictResolver
+	ViewNewBranch
 )
 
 // Status represents the parsed git status
@@ -65,6 +66,7 @@ const (
 	StepCheckout
 	StepMerge
 	StepRebase
+	StepNewBranch
 )
 
 func (s StepType) String() string {
@@ -83,6 +85,8 @@ func (s StepType) String() string {
 		return "Merge"
 	case StepRebase:
 		return "Rebase"
+	case StepNewBranch:
+		return "New Branch"
 	default:
 		return "Unknown"
 	}

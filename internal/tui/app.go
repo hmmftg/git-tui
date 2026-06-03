@@ -37,6 +37,7 @@ type AppModel struct {
 	workflowEditorModel   *WorkflowEditorModel
 	conflictResolverModel *ConflictResolverModel
 	executionModel        *ExecutionModel
+	newBranchModel        *NewBranchModel
 
 	// Message/Error
 	Message     string
@@ -134,6 +135,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "8":
 			if m.CurrentView == models.ViewHome {
 				return m, m.navigateTo(models.ViewWorkflowBuilder)
+			}
+		case "9":
+			if m.CurrentView == models.ViewHome {
+				return m, m.navigateTo(models.ViewNewBranch)
 			}
 		}
 
@@ -268,6 +273,10 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case models.ViewRebase:
 			m.rebaseModel = NewRebaseModel(m.GitService, m.Styles)
 			return m, m.rebaseModel.Init()
+		case models.ViewNewBranch:
+			m.newBranchModel = NewNewBranchModel(m.GitService, m.Styles)
+			m.updateChildSizes()
+			return m, m.newBranchModel.Init()
 		case models.ViewConflictResolver:
 			// Conflict resolver is already set by openConflictResolverMsg handler
 			return m, nil
@@ -339,6 +348,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebaseModel = rm.(*RebaseModel)
 			cmd = c
 		}
+	case models.ViewNewBranch:
+		if m.newBranchModel != nil {
+			nm, c := m.newBranchModel.Update(msg)
+			m.newBranchModel = nm.(*NewBranchModel)
+			cmd = c
+		}
 	case models.ViewConflictResolver:
 		if m.conflictResolverModel != nil {
 			crm, c := m.conflictResolverModel.Update(msg)
@@ -406,6 +421,10 @@ func (m *AppModel) View() string {
 	case models.ViewRebase:
 		if m.rebaseModel != nil {
 			content = m.rebaseModel.View()
+		}
+	case models.ViewNewBranch:
+		if m.newBranchModel != nil {
+			content = m.newBranchModel.View()
 		}
 	case models.ViewConflictResolver:
 		if m.conflictResolverModel != nil {
@@ -488,6 +507,7 @@ func (m *AppModel) renderHome() string {
 		{"6", "⛙ Merge", models.ViewMerge},
 		{"7", "🔄 Rebase", models.ViewRebase},
 		{"8", "⚡ Workflows", models.ViewWorkflowBuilder},
+		{"9", "🌿 New Branch", models.ViewNewBranch},
 		{"q", "❌ Quit", models.ViewHome},
 	}
 
@@ -567,6 +587,10 @@ func (m *AppModel) isInputFocused() bool {
 	case models.ViewCheckout:
 		if m.checkoutModel != nil {
 			return m.checkoutModel.IsInputFocused()
+		}
+	case models.ViewNewBranch:
+		if m.newBranchModel != nil {
+			return m.newBranchModel.IsInputFocused()
 		}
 	}
 	return false

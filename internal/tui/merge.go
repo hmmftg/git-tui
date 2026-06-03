@@ -18,6 +18,7 @@ type MergeModel struct {
 	cursor       int
 	success      bool
 	targetBranch string
+	running      bool
 
 	// Configuration options
 	noCommit bool
@@ -101,6 +102,10 @@ func (m *MergeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.HasConflict() {
 					return m, func() tea.Msg { return OpenConflictResolverMsg{} }
 				}
+			case "p":
+				if !m.running && !m.HasConflict() {
+					return m, NavigateCmd(models.ViewPush)
+				}
 			}
 		}
 
@@ -118,6 +123,7 @@ func (m *MergeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case MergeSuccessMsg:
+		m.running = false
 		// Check for conflicts after merge
 		if m.GitSvc.HasConflicts() {
 			m.SetConflict(string(msg))
@@ -130,6 +136,7 @@ func (m *MergeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case MergeContinueMsg:
+		m.running = false
 		// Check if conflicts are resolved
 		if m.GitSvc.HasConflicts() {
 			m.Message = m.GetStillConflictMessage()
@@ -141,11 +148,13 @@ func (m *MergeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case MergeAbortedMsg:
+		m.running = false
 		m.Reset()
 		m.SetSuccess("Merge aborted")
 		return m, nil
 
 	case error:
+		m.running = false
 		if m.GitSvc.HasConflicts() {
 			m.SetConflict(m.targetBranch)
 			m.Message = m.GetConflictErrorMessage(msg)
@@ -279,7 +288,13 @@ func (m *MergeModel) View() string {
 	}
 
 	// Help
-	help := m.ConflictHandler.GetHelpText("↑/↓: navigate | enter: merge | R: refresh | esc: back")
+	var help string
+	if m.success && !m.HasConflict() {
+		help = "esc: back | p: push"
+	} else {
+		help = "↑/↓: navigate | enter: merge | R: refresh | esc: back"
+	}
+	help = m.ConflictHandler.GetHelpText(help)
 	lines = append(lines, m.Styles.Help.Render(help))
 
 	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
@@ -299,6 +314,7 @@ func (m *MergeModel) loadBranches() tea.Cmd {
 // merge merges the selected branch
 func (m *MergeModel) merge(branch string) tea.Cmd {
 	m.targetBranch = branch
+	m.running = true
 	return func() tea.Msg {
 		err := m.GitSvc.Merge(branch)
 		if err != nil {
@@ -344,6 +360,7 @@ func (m *MergeModel) SetMode(mode CommandMode) {
 	m.BaseModel.SetMode(mode)
 	if mode == ModeConfigure {
 		m.ConflictHandler.Reset()
+		m.running = false
 	}
 }
 

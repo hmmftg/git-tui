@@ -73,6 +73,8 @@ func (m *StatusModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "r":
 				return m, m.loadStatus()
+			case "w":
+				return m, NavigateCmd(models.ViewWorkflowBuilder)
 			}
 		}
 
@@ -210,7 +212,7 @@ func (m *StatusModel) View() string {
 		}
 
 		// Summary
-		lines = append(lines, m.Styles.Help.Render("Press 'r' to refresh | esc to go back"))
+		lines = append(lines, m.Styles.Help.Render("r: refresh | w: workflows | esc: back"))
 	}
 
 	return m.Styles.Box.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))

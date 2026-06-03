@@ -83,9 +83,16 @@ func (m *PullModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg { return commandCancelledMsg{} }
 			}
 		} else {
-			// Execute mode - only allow quit if done or error
-			if msg.String() == "esc" && (m.done || m.Err != nil) {
-				return m, nil
+			// Execute mode
+			switch msg.String() {
+			case "esc":
+				if m.done || m.Err != nil {
+					return m, nil
+				}
+			case "s":
+				if !m.running {
+					return m, NavigateCmd(models.ViewStatus)
+				}
 			}
 		}
 
@@ -108,7 +115,7 @@ func (m *PullModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Mode == ModeExecute {
 			m.running = false
 			m.done = true
-			m.output = append(m.output, "✔ Pull completed successfully!")
+			m.output = append(m.output, "✔ Pull completed successfully! Press S for status.")
 		}
 		return m, nil
 
@@ -185,7 +192,7 @@ func (m *PullModel) View() string {
 		// Help
 		if m.done || m.Err != nil {
 			lines = append(lines, "")
-			lines = append(lines, m.Styles.Help.Render("Press esc to go back"))
+			lines = append(lines, m.Styles.Help.Render("esc: back | s: status"))
 		}
 	}
 

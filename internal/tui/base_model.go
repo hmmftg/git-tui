@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"gitflow-tui/internal/git"
+	"gitflow-tui/internal/models"
 )
 
 // BaseModel provides common fields and helper methods for all command models.
@@ -112,12 +113,9 @@ func QuitCmd() tea.Cmd {
 	return tea.Quit
 }
 
-// NavigationCmd creates a command that sends a view change message
-func NavigationCmd(view ViewType) tea.Cmd {
+// NavigateCmd creates a command that sends a view change message
+func NavigateCmd(view models.ViewType) tea.Cmd {
 	return func() tea.Msg {
-		return ViewChangeMsg(view)
+		return viewChangeMsg(view)
 	}
 }
-
-// ViewType is an alias for models.ViewType to avoid import cycles
-type ViewType int
