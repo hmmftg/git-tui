@@ -40,6 +40,7 @@ func NewHomeScreen(ctx *tui.AppContext) *HomeScreen {
 			huh.NewSelect[HomeAction]().
 				Title("GitFlow TUI").
 				Description("Select an action").
+				Filtering(true).
 				Options(
 					huh.NewOption("📊 Status", ActionStatus),
 					huh.NewOption("📝 Commit", ActionCommit),
@@ -65,6 +66,14 @@ func (h *HomeScreen) Init() tea.Cmd {
 
 // Update handles messages.
 func (h *HomeScreen) Update(msg tea.Msg) (tui.Screen, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		// Handle 'q' to quit only from home screen
+		if msg.String() == "q" {
+			return h, tea.Quit
+		}
+	}
+
 	m, cmd := h.form.Update(msg)
 	h.form = m.(*huh.Form)
 

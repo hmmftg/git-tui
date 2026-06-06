@@ -28,6 +28,7 @@ type Styles struct {
 	Help    lipgloss.Style
 	Key     lipgloss.Style
 	Value   lipgloss.Style
+	Dimmed  lipgloss.Style
 }
 
 // DefaultStyles returns the default styles.
@@ -87,6 +88,9 @@ func DefaultStyles() Styles {
 
 	s.Value = lipgloss.NewStyle().
 		Foreground(TextColor)
+
+	s.Dimmed = lipgloss.NewStyle().
+		Foreground(DimmedColor)
 
 	return s
 }

@@ -61,8 +61,21 @@ func (f *PullForm) Update(msg tea.Msg) (tui.Screen, tea.Cmd) {
 			}
 		}
 		return f, func() tea.Msg {
+			cmdStr := "git pull"
+			if f.rebase {
+				cmdStr += " --rebase"
+			}
+			remote := f.remote
+			if remote == "" {
+				remote = "origin"
+			}
+			cmdStr += " " + remote
+			if f.branch != "" {
+				cmdStr += " " + f.branch
+			}
 			return tui.OperationRequestMsg{
-				Title: "Pull",
+				Title:   "Pull",
+				Command: cmdStr,
 				Run: func() error {
 					return f.ctx.GitService.PullOptions(f.remote, f.rebase, f.branch)
 				},

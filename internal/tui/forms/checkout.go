@@ -70,8 +70,13 @@ func (f *CheckoutForm) Update(msg tea.Msg) (tui.Screen, tea.Cmd) {
 			}
 		}
 		return f, func() tea.Msg {
+			cmd := "git checkout " + f.branch
+			if f.createNew {
+				cmd = "git checkout -b " + f.newName + " " + f.branch
+			}
 			return tui.OperationRequestMsg{
-				Title: "Checkout",
+				Title:   "Checkout",
+				Command: cmd,
 				Run: func() error {
 					if f.createNew {
 						return f.ctx.GitService.CreateBranch(f.newName, f.branch)

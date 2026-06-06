@@ -63,8 +63,13 @@ func (f *RebaseForm) Update(msg tea.Msg) (tui.Screen, tea.Cmd) {
 			}
 		}
 		return f, func() tea.Msg {
+			cmd := "git rebase " + f.branch
+			if f.interactive {
+				cmd = "git rebase -i " + f.branch
+			}
 			return tui.OperationRequestMsg{
-				Title: "Rebase",
+				Title:   "Rebase",
+				Command: cmd,
 				Run: func() error {
 					return f.ctx.GitService.Rebase(f.branch)
 				},

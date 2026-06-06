@@ -61,8 +61,21 @@ func (f *PushForm) Update(msg tea.Msg) (tui.Screen, tea.Cmd) {
 			}
 		}
 		return f, func() tea.Msg {
+			cmdStr := "git push"
+			if f.force {
+				cmdStr += " --force"
+			}
+			remote := f.remote
+			if remote == "" {
+				remote = "origin"
+			}
+			cmdStr += " " + remote
+			if f.branch != "" {
+				cmdStr += " " + f.branch
+			}
 			return tui.OperationRequestMsg{
-				Title: "Push",
+				Title:   "Push",
+				Command: cmdStr,
 				Run: func() error {
 					return f.ctx.GitService.PushOptions(f.remote, f.branch, f.force)
 				},

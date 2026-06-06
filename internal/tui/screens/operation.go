@@ -12,17 +12,21 @@ import (
 type OperationScreen struct {
 	ctx      *tui.AppContext
 	title    string
+	command  string
 	run      func() error
 	executor *components.AsyncExecutor
 }
 
 // NewOperationScreen creates a new operation screen.
-func NewOperationScreen(ctx *tui.AppContext, title string, run func() error) *OperationScreen {
+func NewOperationScreen(ctx *tui.AppContext, title string, command string, run func() error) *OperationScreen {
+	executor := components.NewAsyncExecutor(ctx.Styles)
+	executor.SetCommand(command)
 	return &OperationScreen{
 		ctx:      ctx,
 		title:    title,
+		command:  command,
 		run:      run,
-		executor: components.NewAsyncExecutor(ctx.Styles),
+		executor: executor,
 	}
 }
 

@@ -64,8 +64,13 @@ func (f *NewBranchForm) Update(msg tea.Msg) (tui.Screen, tea.Cmd) {
 			}
 		}
 		return f, func() tea.Msg {
+			cmd := "git checkout -b " + f.name
+			if f.base != "" {
+				cmd += " " + f.base
+			}
 			return tui.OperationRequestMsg{
-				Title: "New Branch",
+				Title:   "New Branch",
+				Command: cmd,
 				Run: func() error {
 					return f.ctx.GitService.CreateBranch(f.name, f.base)
 				},

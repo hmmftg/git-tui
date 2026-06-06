@@ -12,15 +12,21 @@ import (
 
 // App is the global Bubble Tea application model.
 type App struct {
-	ctx    *tui.AppContext
-	router *Router
+	ctx          *tui.AppContext
+	router       *Router
+	cachedBranch string
 }
 
 // NewApp creates a new App.
 func NewApp(ctx *tui.AppContext, initialScreen tui.Screen) *App {
+	branch := "(unknown)"
+	if status, err := ctx.GitService.Status(); err == nil {
+		branch = status.Branch
+	}
 	return &App{
-		ctx:    ctx,
-		router: NewRouter(initialScreen),
+		ctx:          ctx,
+		router:       NewRouter(initialScreen),
+		cachedBranch: branch,
 	}
 }
 
@@ -42,25 +48,40 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s == "ctrl+c" {
 			return a, tea.Quit
 		}
-		if s == "q" {
-			return a, tea.Quit
-		}
+		// Only allow 'q' to quit from specific screens (not forms)
+		// Let screens handle their own quit logic
 		if s == "home" {
-			a.router.Navigate(screens.NewHomeScreen(a.ctx))
-			return a, nil
+			newScreen := screens.NewHomeScreen(a.ctx)
+			a.router.Navigate(newScreen)
+			if status, err := a.ctx.GitService.Status(); err == nil {
+				a.cachedBranch = status.Branch
+			}
+			return a, newScreen.Init()
 		}
 
 	case tui.OperationRequestMsg:
-		a.router.Navigate(screens.NewOperationScreen(a.ctx, msg.Title, msg.Run))
-		return a, nil
+		newScreen := screens.NewOperationScreen(a.ctx, msg.Title, msg.Command, msg.Run)
+		a.router.Navigate(newScreen)
+		return a, newScreen.Init()
 
 	case tui.HomeRequestMsg:
-		a.router.Navigate(screens.NewHomeScreen(a.ctx))
-		return a, nil
+		newScreen := screens.NewHomeScreen(a.ctx)
+		a.router.Navigate(newScreen)
+		// Update branch cache when going home
+		if status, err := a.ctx.GitService.Status(); err == nil {
+			a.cachedBranch = status.Branch
+		}
+		return a, newScreen.Init()
 	}
 
 	// Delegate to current screen
 	screen, cmd := a.router.Current().Update(msg)
+	if screen != a.router.Current() {
+		// Screen changed, initialize the new screen
+		a.router.Navigate(screen)
+		initCmd := screen.Init()
+		return a, tea.Batch(cmd, initCmd)
+	}
 	a.router.Navigate(screen)
 	return a, cmd
 }
@@ -86,11 +107,7 @@ func (a *App) View() tea.View {
 }
 
 func (a *App) renderHeader() string {
-	branch := "(unknown)"
-	if status, err := a.ctx.GitService.Status(); err == nil {
-		branch = status.Branch
-	}
-	header := fmt.Sprintf(" GitFlow TUI | 🔀 %s ", branch)
+	header := fmt.Sprintf(" GitFlow TUI | 🔀 %s ", a.cachedBranch)
 	style := a.ctx.Styles.Header
 	if a.ctx.Width > 0 {
 		style = style.Width(a.ctx.Width)
@@ -99,7 +116,13 @@ func (a *App) renderHeader() string {
 }
 
 func (a *App) renderFooter() string {
-	help := "q: quit | home: go home | ?: help"
+	var help string
+	// Check if we're on the home screen
+	if _, isHome := a.router.Current().(*screens.HomeScreen); isHome {
+		help = "q: quit | ?: help"
+	} else {
+		help = "ctrl+c: quit | home: go home | ?: help"
+	}
 	style := a.ctx.Styles.Footer
 	if a.ctx.Width > 0 {
 		style = style.Width(a.ctx.Width)

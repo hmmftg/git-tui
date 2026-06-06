@@ -18,6 +18,7 @@ type AsyncExecutor struct {
 	err      error
 	output   []string
 	maxLines int
+	command  string // The command being executed
 }
 
 // NewAsyncExecutor creates a new async executor.
@@ -39,6 +40,11 @@ func (a *AsyncExecutor) Start() tea.Cmd {
 	a.err = nil
 	a.output = []string{}
 	return a.spinner.Tick
+}
+
+// SetCommand sets the command being executed.
+func (a *AsyncExecutor) SetCommand(command string) {
+	a.command = command
 }
 
 // Stop marks the operation as successfully completed.
@@ -97,12 +103,25 @@ func (a *AsyncExecutor) Update(msg tea.Msg) tea.Cmd {
 func (a *AsyncExecutor) View(s styles.Styles, title string) string {
 	var lines []string
 	if a.running {
-		lines = append(lines, fmt.Sprintf("%s %s", a.spinner.View(), title))
+		statusLine := fmt.Sprintf("%s %s", a.spinner.View(), title)
+		lines = append(lines, statusLine)
+		if a.command != "" {
+			lines = append(lines, s.Dimmed.Render(fmt.Sprintf("  Executing: %s", a.command)))
+		}
 	} else if a.done {
 		if a.err != nil {
 			lines = append(lines, s.Error.Render(fmt.Sprintf("✘ %s failed", title)))
 		} else {
 			lines = append(lines, s.Success.Render(fmt.Sprintf("✔ %s completed", title)))
+		}
+		if a.command != "" {
+			lines = append(lines, s.Dimmed.Render(fmt.Sprintf("  Command: %s", a.command)))
+		}
+	} else {
+		// Initial state before running
+		lines = append(lines, fmt.Sprintf("Preparing %s...", title))
+		if a.command != "" {
+			lines = append(lines, s.Dimmed.Render(fmt.Sprintf("  Command: %s", a.command)))
 		}
 	}
 	if len(a.output) > 0 {

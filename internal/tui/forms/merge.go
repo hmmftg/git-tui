@@ -67,8 +67,16 @@ func (f *MergeForm) Update(msg tea.Msg) (tui.Screen, tea.Cmd) {
 			}
 		}
 		return f, func() tea.Msg {
+			cmd := "git merge " + f.branch
+			if f.noFF {
+				cmd = "git merge --no-ff " + f.branch
+			}
+			if f.squash {
+				cmd += " --squash"
+			}
 			return tui.OperationRequestMsg{
-				Title: "Merge",
+				Title:   "Merge",
+				Command: cmd,
 				Run: func() error {
 					return f.ctx.GitService.Merge(f.branch)
 				},

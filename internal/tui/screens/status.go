@@ -33,7 +33,7 @@ func (s *StatusScreen) Update(msg tea.Msg) (tui.Screen, tea.Cmd) {
 		case "esc", "q":
 			return NewHomeScreen(s.ctx), nil
 		case "r":
-			return s, nil // Refresh could trigger a status fetch
+			return s, nil // Refresh - just re-render
 		case "c":
 			return forms.NewCommitForm(s.ctx, false), nil
 		case "w":

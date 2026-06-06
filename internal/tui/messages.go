@@ -4,8 +4,9 @@ import "gitflow-tui/internal/models"
 
 // OperationRequestMsg requests the app to navigate to an operation screen.
 type OperationRequestMsg struct {
-	Title string
-	Run   func() error
+	Title   string
+	Command string // The git command being executed (e.g., "git push origin main")
+	Run     func() error
 }
 
 // HomeRequestMsg requests the app to navigate home.
@@ -34,3 +35,11 @@ type ErrorMsgString string
 
 // SuccessMsgString is a simple string success message.
 type SuccessMsgString string
+
+// LoadingMsg signals that data is being fetched.
+type LoadingMsg struct {
+	Message string
+}
+
+// LoadedMsg signals that data fetching completed.
+type LoadedMsg struct{}

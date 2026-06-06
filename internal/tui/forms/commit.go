@@ -73,6 +73,13 @@ func (f *CommitForm) Update(msg tea.Msg) (tui.Screen, tea.Cmd) {
 		return f, func() tea.Msg {
 			return tui.OperationRequestMsg{
 				Title: "Commit",
+				Command: func() string {
+					cmd := "git commit -m \"" + message + "\""
+					if f.autoAdd {
+						cmd = "git add . && " + cmd
+					}
+					return cmd
+				}(),
 				Run: func() error {
 					if f.autoAdd {
 						if err := f.ctx.GitService.AddAll(); err != nil {
