@@ -4,26 +4,28 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
+	"gitflow-tui/internal/app"
 	"gitflow-tui/internal/git"
 	"gitflow-tui/internal/tui"
+	"gitflow-tui/internal/tui/screens"
+	"gitflow-tui/internal/workflow"
 )
 
 func main() {
-	// Create git service
 	gitSvc := git.NewGitService(".")
-
-	// Check if we're in a git repository
 	if !gitSvc.IsGitRepo() {
 		fmt.Fprintf(os.Stderr, "Error: Not a git repository\n")
 		os.Exit(1)
 	}
 
-	// Create and run the TUI application
-	app := tui.NewApp(gitSvc)
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	store := workflow.NewViperStore()
+	ctx := tui.NewAppContext(gitSvc, store)
+	initialScreen := screens.NewHomeScreen(ctx)
+	application := app.NewApp(ctx, initialScreen)
 
+	p := tea.NewProgram(application)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running application: %v\n", err)
 		os.Exit(1)

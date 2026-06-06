@@ -1,104 +1,36 @@
 package tui
 
-import (
-	"fmt"
+import "gitflow-tui/internal/models"
 
-	"gitflow-tui/internal/models"
-)
-
-// SuccessMsg is a generic success message with typed payload
-type SuccessMsg[T any] struct {
-	Data    T
-	Message string
+// OperationRequestMsg requests the app to navigate to an operation screen.
+type OperationRequestMsg struct {
+	Title string
+	Run   func() error
 }
 
-// ErrorMsg is a generic error message with context
-type ErrorMsg struct {
-	Err     error
-	Context string
+// HomeRequestMsg requests the app to navigate home.
+type HomeRequestMsg struct{}
+
+// OperationFinishedMsg signals an async operation completed.
+type OperationFinishedMsg struct {
+	Err error
 }
 
-func (e ErrorMsg) Error() string {
-	if e.Context != "" {
-		return fmt.Sprintf("%s: %v", e.Context, e.Err)
-	}
-	return e.Err.Error()
+// WorkflowSavedMsg signals a workflow was saved.
+type WorkflowSavedMsg struct {
+	Workflow models.Workflow
 }
 
-// Operation lifecycle messages
-type OperationStartedMsg struct {
-	Operation string
+// StepCreatedMsg signals a workflow step was created or edited.
+type StepCreatedMsg struct {
+	Step models.WorkflowStep
 }
 
-type OperationCompletedMsg struct {
-	Operation string
-	Success   bool
-	Message   string
-}
-
-// Branch-related messages
-type BranchesLoadedMsg []string
-
-// Status-related messages
-type StatusLoadedMsg struct {
-	Branch     string
-	IsClean    bool
-	Modified   []string
-	Added      []string
-	Deleted    []string
-	Untracked  []string
-	Conflicted []string
-	Ahead      int
-	Behind     int
-}
-
-// Command configuration messages
-type CommandConfiguredMsg struct {
-	Config models.CommandConfig
-}
-
-type CommandCancelledMsg struct{}
-
-// Commit messages
-type CommitSuccessMsg struct{}
-type CommitErrorMsg error
-type AddSuccessMsg struct{}
-
-// Checkout messages
-type CheckoutSuccessMsg string
-
-// Push messages
-type PushSuccessMsg struct{}
-type PushErrorMsg error
-
-// Pull messages
-type PullSuccessMsg struct{}
-type PullErrorMsg error
-
-// Merge messages
-type MergeSuccessMsg string
-type MergeContinueMsg struct{}
-type MergeAbortedMsg struct{}
-
-// Rebase messages
-type RebaseSuccessMsg string
-type RebaseContinueMsg struct{}
-type RebaseAbortedMsg struct{}
-
-// Workflow messages
-type SaveWorkflowMsg models.Workflow
-type CancelEditMsg struct{}
-
-// Conflict messages
-type OpenConflictResolverMsg struct{}
-type ConflictsResolvedMsg struct{}
-type ConflictsAbortedMsg struct{}
-type ConflictsCancelledMsg struct{}
-
-// View navigation
-type ViewChangeMsg models.ViewType
+// RepoInfoMsg carries refreshed repository information.
 type RepoInfoMsg models.RepositoryInfo
 
-// Simple string messages
+// ErrorMsgString is a simple string error message.
 type ErrorMsgString string
+
+// SuccessMsgString is a simple string success message.
 type SuccessMsgString string
